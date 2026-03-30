@@ -1,14 +1,34 @@
 #!/usr/bin/env node
 
 /**
- * Lightweight inbox checker that uses the Agent Bridge REST API.
- * Works with remote K8s deployments — no direct Redis access needed.
+ * Lightweight inbox checker that reads config from .mcp.json.
+ * Works with remote deployments — no direct Redis access needed.
  *
- * Usage: AGENT_BRIDGE_URL=https://mcp.mycluster.cyou AGENT_BRIDGE_WORKSPACE_ID=my-workspace node check-inbox-http.js
+ * Reads the agent-bridge URL and workspace_id from .mcp.json:
+ *   { "mcpServers": { "agent-bridge": { "url": "https://host/sse?workspace_id=my-ws" } } }
+ *
+ * Falls back to env vars AGENT_BRIDGE_URL and AGENT_BRIDGE_WORKSPACE_ID.
  */
 
-const BASE_URL = process.env.AGENT_BRIDGE_URL;
-const WORKSPACE_ID = process.env.AGENT_BRIDGE_WORKSPACE_ID;
+import { readFileSync } from "fs";
+import { resolve } from "path";
+
+let BASE_URL = process.env.AGENT_BRIDGE_URL;
+let WORKSPACE_ID = process.env.AGENT_BRIDGE_WORKSPACE_ID;
+
+// Try to read from .mcp.json
+if (!BASE_URL || !WORKSPACE_ID) {
+  try {
+    const mcpPath = resolve(process.cwd(), ".mcp.json");
+    const mcpConfig = JSON.parse(readFileSync(mcpPath, "utf-8"));
+    const sseUrl = mcpConfig?.mcpServers?.["agent-bridge"]?.url;
+    if (sseUrl) {
+      const parsed = new URL(sseUrl);
+      WORKSPACE_ID = WORKSPACE_ID || parsed.searchParams.get("workspace_id");
+      BASE_URL = BASE_URL || `${parsed.protocol}//${parsed.host}`;
+    }
+  } catch {}
+}
 
 if (!BASE_URL || !WORKSPACE_ID) {
   process.exit(0);

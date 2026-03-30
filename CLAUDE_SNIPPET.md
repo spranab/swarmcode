@@ -1,23 +1,21 @@
-# Agent Bridge — Workspace Setup Guide
+# Agent Bridge — Workspace Setup
 
-To connect any workspace to Agent Bridge, create these 2 files in your project root. Replace `YOUR_WORKSPACE_ID` everywhere.
+Two files per workspace. Replace `YOUR_WORKSPACE_ID`.
 
----
-
-## 1. `.mcp.json` — connects Claude Code to the bridge
+## 1. `.mcp.json`
 
 ```json
 {
   "mcpServers": {
     "agent-bridge": {
       "type": "sse",
-      "url": "https://agent-bridge.mcp.mycluster.cyou/sse"
+      "url": "https://agent-bridge.mcp.mycluster.cyou/sse?workspace_id=YOUR_WORKSPACE_ID"
     }
   }
 }
 ```
 
-## 2. `.claude/settings.json` — auto-checks inbox and sets workspace identity
+## 2. `.claude/settings.json`
 
 ```json
 {
@@ -28,7 +26,7 @@ To connect any workspace to Agent Bridge, create these 2 files in your project r
         "hooks": [
           {
             "type": "command",
-            "command": "AGENT_BRIDGE_URL=https://agent-bridge.mcp.mycluster.cyou AGENT_BRIDGE_WORKSPACE_ID=YOUR_WORKSPACE_ID node c:\\Users\\sync\\codes\\agent-bridge\\src\\check-inbox-http.js",
+            "command": "node c:\\Users\\sync\\codes\\agent-bridge\\src\\check-inbox-http.js",
             "timeout": 5000
           }
         ]
@@ -38,13 +36,4 @@ To connect any workspace to Agent Bridge, create these 2 files in your project r
 }
 ```
 
-That's it. The hook injects your workspace ID into Claude's context on every turn, and the MCP tool descriptions tell Claude when to register, send, and receive.
-
----
-
-## Example workspace IDs
-
-Pick short, descriptive names:
-- `desktop-api` — desktop machine, working on API
-- `laptop-frontend` — laptop, working on frontend
-- `server-etl` — server, running ETL pipeline
+The hook reads `workspace_id` from `.mcp.json` — no duplication needed.
