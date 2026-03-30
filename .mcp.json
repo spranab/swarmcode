@@ -1,12 +1,5 @@
 {
   "mcpServers": {
-    "agent-bridge": {
-      "type": "sse",
-      "url": "https://agent-bridge.mcp.mycluster.cyou/sse",
-      "headers": {
-        "x-workspace-id": "agent-bridge-dev"
-      }
-    },
     "agent-bridge-channel": {
       "command": "node",
       "args": [
