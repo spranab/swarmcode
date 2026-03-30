@@ -60,6 +60,7 @@ console.error(`agent-bridge-channel: workspace=${WORKSPACE_ID}, redis=${REDIS_UR
 
 // --- Redis connections ---
 const redis = new Redis(REDIS_URL, { keyPrefix: KEY_PREFIX });
+const publisher = new Redis(REDIS_URL); // separate connection for PUBLISH (can't publish on subscriber)
 const subscriber = new Redis(REDIS_URL);
 
 // --- MCP Server (Channel) ---
@@ -165,11 +166,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
             await redis.expire(`inbox:${wsId}`, 86400);
           }
         }
-        await subscriber.publish(`${WS_CHANNEL_PREFIX}broadcast`, JSON.stringify(msg));
+        await publisher.publish(`${WS_CHANNEL_PREFIX}broadcast`, JSON.stringify(msg));
       } else {
         await redis.lpush(`inbox:${args.to}`, JSON.stringify(msg));
         await redis.expire(`inbox:${args.to}`, 86400);
-        await subscriber.publish(`${WS_CHANNEL_PREFIX}${args.to}`, JSON.stringify(msg));
+        await publisher.publish(`${WS_CHANNEL_PREFIX}${args.to}`, JSON.stringify(msg));
       }
 
       return {
@@ -282,6 +283,7 @@ console.error(`agent-bridge-channel: Auto-registered as ${WORKSPACE_ID}`);
 
 process.on("SIGINT", async () => {
   await redis.quit();
+  await publisher.quit();
   await subscriber.quit();
   process.exit(0);
 });
