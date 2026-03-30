@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agent-bridge
+  namespace: mcp
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # SSE requires these for long-lived connections
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-cache: "off"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - mcp.YOURDOMAIN.com        # ← CHANGE THIS
+      secretName: agent-bridge-tls
+  rules:
+    - host: mcp.YOURDOMAIN.com      # ← CHANGE THIS
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agent-bridge
+                port:
+                  number: 80

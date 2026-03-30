@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-bridge
+  namespace: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-bridge
+  template:
+    metadata:
+      labels:
+        app: agent-bridge
+    spec:
+      containers:
+        - name: agent-bridge
+          image: ghcr.io/spranab/agent-bridge:latest
+          ports:
+            - containerPort: 4100
+          env:
+            - name: AGENT_BRIDGE_REDIS_URL
+              value: redis://redis.mcp.svc.cluster.local:6379
+            - name: AGENT_BRIDGE_PORT
+              value: "4100"
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+              cpu: 200m
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4100
+            initialDelaySeconds: 10
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-bridge
+  namespace: mcp
+spec:
+  selector:
+    app: agent-bridge
+  ports:
+    - port: 80
+      targetPort: 4100
