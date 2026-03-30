@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+// Route "init" subcommand to the init script
+if (process.argv[2] === "init") {
+  await import("./init.js");
+  process.exit(0);
+}
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
