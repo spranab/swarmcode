@@ -13,9 +13,11 @@ spec:
       labels:
         app: agent-bridge
     spec:
+      imagePullSecrets:
+        - name: harbor-secret
       containers:
         - name: agent-bridge
-          image: ghcr.io/spranab/agent-bridge:latest
+          image: harbor.mycluster.cyou/mcp/agent-bridge:latest
           ports:
             - containerPort: 4100
           env:

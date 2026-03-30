@@ -165,6 +165,24 @@ async function main() {
       }
     });
 
+    // REST API for hooks and external integrations
+    app.get("/api/inbox/:workspaceId", async (_req, res) => {
+      const r = getRedis();
+      const raw = await r.lrange(`inbox:${_req.params.workspaceId}`, 0, -1);
+      const messages = raw.map((m) => JSON.parse(m)).reverse();
+      res.json({ workspace: _req.params.workspaceId, messages });
+    });
+
+    app.get("/api/status", async (_req, res) => {
+      const r = getRedis();
+      const raw = await r.hgetall("workspaces");
+      const workspaces = Object.values(raw).map((v) => JSON.parse(v));
+      for (const ws of workspaces) {
+        ws.pending_messages = await r.llen(`inbox:${ws.id}`);
+      }
+      res.json({ workspaces });
+    });
+
     app.get("/health", (_req, res) => {
       res.json({
         status: "ok",
