@@ -65,20 +65,23 @@ if (existsSync(settingsPath)) {
   } catch {}
 }
 
-const hookCommand = `node ${hookScript.replace(/\\/g, "\\\\")}`;
-const hookEntry = {
+const escapedScript = hookScript.replace(/\\/g, "\\\\");
+const promptHookEntry = {
   matcher: "",
-  hooks: [{ type: "command", command: hookCommand, timeout: 5000 }],
+  hooks: [{ type: "command", command: `node ${escapedScript}`, timeout: 5000 }],
+};
+const stopHookEntry = {
+  matcher: "",
+  hooks: [{ type: "command", command: `AGENT_BRIDGE_HOOK_MODE=stop node ${escapedScript}`, timeout: 5000 }],
 };
 
 settings.hooks = settings.hooks || {};
 for (const event of ["UserPromptSubmit", "Stop"]) {
   settings.hooks[event] = settings.hooks[event] || [];
-  // Remove old agent-bridge hooks, then append (idempotent)
   settings.hooks[event] = settings.hooks[event].filter(
     (h) => !h.hooks?.some((hook) => hook.command?.includes("check-inbox"))
   );
-  settings.hooks[event].push(hookEntry);
+  settings.hooks[event].push(event === "Stop" ? stopHookEntry : promptHookEntry);
 }
 
 writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");

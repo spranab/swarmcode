@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node c:\\Users\\sync\\codes\\agent-bridge\\src\\check-inbox-http.js",
+            "command": "AGENT_BRIDGE_HOOK_MODE=stop node c:\\Users\\sync\\codes\\agent-bridge\\src\\check-inbox-http.js",
             "timeout": 5000
           }
         ]
