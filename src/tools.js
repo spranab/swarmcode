@@ -1,33 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
-import { getRedis, getSubscriber } from "./redis.js";
+import { getRedis, WS_CHANNEL_PREFIX } from "./redis.js";
 
 const WORKSPACE_TTL = 60 * 60 * 2; // 2 hours
 const MESSAGE_TTL = 60 * 60 * 24; // 24 hours
-const CHANNEL = "agent-bridge:messages";
 
-// Callbacks for real-time message notifications
-const messageCallbacks = [];
-
-export function onMessage(cb) {
-  messageCallbacks.push(cb);
-  return () => {
-    const idx = messageCallbacks.indexOf(cb);
-    if (idx !== -1) messageCallbacks.splice(idx, 1);
-  };
-}
-
-export function setupSubscriber() {
-  const sub = getSubscriber();
-  sub.subscribe(CHANNEL);
-  sub.on("message", (_ch, raw) => {
-    try {
-      const msg = JSON.parse(raw);
-      for (const cb of messageCallbacks) {
-        cb(msg);
-      }
-    } catch {}
-  });
-}
+// No global subscriber — each SSE session subscribes to its own workspace channel via server.js
 
 export const toolDefinitions = [
   {
@@ -316,8 +293,14 @@ export async function handleTool(name, args) {
       await r.lpush("messages:log", JSON.stringify(msg));
       await r.ltrim("messages:log", 0, 499);
 
-      // Publish for real-time (use raw channel name, no key prefix)
-      await getRedis().publish(CHANNEL, JSON.stringify(msg));
+      // Publish to per-workspace channels for real-time delivery
+      if (args.to === "*") {
+        // Broadcast channel — all subscribers hear it
+        await getRedis().publish(`${WS_CHANNEL_PREFIX}broadcast`, JSON.stringify(msg));
+      } else {
+        // Direct channel — only target workspace hears it
+        await getRedis().publish(`${WS_CHANNEL_PREFIX}${args.to}`, JSON.stringify(msg));
+      }
 
       // Update sender's last_active
       await touchWorkspace(r, args.from);

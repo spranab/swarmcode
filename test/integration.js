@@ -7,7 +7,7 @@
 
 import Redis from "ioredis";
 import { connect, disconnect } from "../src/redis.js";
-import { toolDefinitions, handleTool, setupSubscriber } from "../src/tools.js";
+import { toolDefinitions, handleTool } from "../src/tools.js";
 
 const REDIS_URL = process.env.AGENT_BRIDGE_REDIS_URL || "redis://localhost:6379";
 const PREFIX = "agent-bridge:";
@@ -40,7 +40,7 @@ function parse(result) {
 
 async function main() {
   await connect();
-  setupSubscriber();
+  // No global subscriber — per-workspace channels handled by server.js
   await cleanup();
 
   console.log("\n🔧 Agent Bridge Integration Tests\n");

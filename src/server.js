@@ -18,8 +18,8 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import express from "express";
-import { connect, disconnect, getRedis } from "./redis.js";
-import { toolDefinitions, handleTool, setupSubscriber, onMessage } from "./tools.js";
+import { connect, disconnect, getRedis, createSubscriber, WS_CHANNEL_PREFIX } from "./redis.js";
+import { toolDefinitions, handleTool } from "./tools.js";
 
 const useSSE = process.argv.includes("--sse");
 const PORT = parseInt(process.env.AGENT_BRIDGE_PORT || "4100", 10);
@@ -57,16 +57,7 @@ Your workspace_id is provided by the user's hook or must be set via register(). 
 Use \`type\` when sending: "info", "request", "question", "answer", "decision", "artifact"
 
 ## Priority
-Use \`priority\`: "low", "normal", "high", "urgent"
-
-## Example
-\`\`\`
-register("my-workspace", "Building REST API for users", "desktop")
-receive("my-workspace")
-// ... do work ...
-send({from: "my-workspace", to: "*", type: "info", content: "POST /api/users is live"})
-share_artifact({from: "my-workspace", name: "user-schema", type: "schema", content: "..."})
-\`\`\``;
+Use \`priority\`: "low", "normal", "high", "urgent"`;
 
 /**
  * Creates a new MCP Server instance with all handlers registered.
@@ -84,7 +75,6 @@ function createServer() {
     }
   );
 
-  // --- Tools ---
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: toolDefinitions,
   }));
@@ -94,13 +84,11 @@ function createServer() {
     return handleTool(name, args || {});
   });
 
-  // --- Prompts ---
   server.setRequestHandler(ListPromptsRequestSchema, async () => ({
     prompts: [
       {
         name: "agent-bridge-guide",
-        description:
-          "How to use Agent Bridge for cross-workspace communication",
+        description: "How to use Agent Bridge for cross-workspace communication",
       },
     ],
   }));
@@ -110,24 +98,20 @@ function createServer() {
       return {
         description: "Agent Bridge usage guide",
         messages: [
-          {
-            role: "user",
-            content: { type: "text", text: GUIDE_PROMPT },
-          },
+          { role: "user", content: { type: "text", text: GUIDE_PROMPT } },
         ],
       };
     }
     throw new Error(`Unknown prompt: ${request.params.name}`);
   });
 
-  // --- Resources ---
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
     const r = getRedis();
     const raw = await r.hgetall("workspaces");
     const resources = Object.keys(raw).map((wsId) => ({
       uri: `agent-bridge://inbox/${wsId}`,
       name: `Inbox: ${wsId}`,
-      description: `Pending messages for workspace "${wsId}". Subscribe for real-time updates.`,
+      description: `Pending messages for workspace "${wsId}".`,
       mimeType: "application/json",
     }));
     resources.push({
@@ -189,53 +173,111 @@ function createServer() {
 
 async function main() {
   await connect();
-  setupSubscriber();
 
   if (useSSE) {
     const app = express();
-    const sessions = {}; // sessionId -> { transport, server }
+    // sessionId -> { transport, server, wsId, subscriber }
+    const sessions = {};
+
+    /**
+     * Subscribe a session to its workspace channel + broadcast channel.
+     * Called when the client registers via the register tool.
+     */
+    function subscribeSession(sessionId, wsId) {
+      const session = sessions[sessionId];
+      if (!session || session.wsId === wsId) return; // already subscribed
+
+      // Clean up old subscription if workspace changed
+      if (session.subscriber) {
+        session.subscriber.quit().catch(() => {});
+      }
+
+      session.wsId = wsId;
+      const sub = createSubscriber();
+      session.subscriber = sub;
+
+      sub.connect().then(() => {
+        // Subscribe to direct channel + broadcast
+        sub.subscribe(
+          `${WS_CHANNEL_PREFIX}${wsId}`,
+          `${WS_CHANNEL_PREFIX}broadcast`
+        );
+
+        sub.on("message", async (channel, raw) => {
+          try {
+            const msg = JSON.parse(raw);
+
+            // Skip own broadcasts
+            if (channel === `${WS_CHANNEL_PREFIX}broadcast` && msg.from === wsId) return;
+
+            console.error(`[${wsId}] Message from ${msg.from} via ${channel.replace(WS_CHANNEL_PREFIX, "")}`);
+
+            // Try MCP sampling to push message to Claude
+            try {
+              await session.server.createMessage({
+                messages: [
+                  {
+                    role: "user",
+                    content: {
+                      type: "text",
+                      text: `[AGENT BRIDGE] New message from "${msg.from}" (${msg.type}${msg.priority === "high" || msg.priority === "urgent" ? `, ${msg.priority.toUpperCase()}` : ""}): ${msg.content}\n\nYou MUST: 1) call receive("${wsId}") to mark as read, 2) respond using send(from: "${wsId}", to: "${msg.from}", ...)`,
+                    },
+                  },
+                ],
+                maxTokens: 1024,
+              });
+            } catch (err) {
+              // Sampling not supported — fall back to resource notification
+              console.error(`[${wsId}] Sampling failed: ${err.message}`);
+              try {
+                session.server.sendResourceUpdated({ uri: `agent-bridge://inbox/${wsId}` });
+              } catch {}
+            }
+          } catch {}
+        });
+      });
+    }
+
+    // Intercept register tool calls to set up channel subscriptions
+    const originalCreateServer = createServer;
+    function createServerWithSubscription(sessionId) {
+      const server = originalCreateServer();
+
+      // Wrap the CallToolRequest handler to intercept register calls
+      const origHandler = server._requestHandlers?.get("tools/call");
+
+      server.setRequestHandler(CallToolRequestSchema, async (request) => {
+        const { name, arguments: args } = request.params;
+        const result = await handleTool(name, args || {});
+
+        // If this was a register call, subscribe this session to the workspace channel
+        if (name === "register" && args?.workspace_id) {
+          subscribeSession(sessionId, args.workspace_id);
+        }
+
+        return result;
+      });
+
+      return server;
+    }
 
     app.get("/sse", async (req, res) => {
       const transport = new SSEServerTransport("/messages", res);
-      const server = createServer();
-      const wsId = req.headers["x-workspace-id"];
+      const server = createServerWithSubscription(transport.sessionId);
 
-      sessions[transport.sessionId] = { transport, server, wsId };
-
-      // Push messages to this client in real-time
-      const unsubscribe = onMessage(async (msg) => {
-        // Only push if this message is for this workspace (or broadcast)
-        const isForMe = msg.to === wsId || (msg.to === "*" && msg.from !== wsId);
-        if (!isForMe) return;
-
-        // Try sampling: ask Claude to process the message
-        try {
-          await server.createMessage({
-            messages: [
-              {
-                role: "user",
-                content: {
-                  type: "text",
-                  text: `[AGENT BRIDGE] New message from "${msg.from}" (${msg.type}): ${msg.content}\n\nProcess this message: call receive("${wsId}") to mark as read, then respond appropriately using send().`,
-                },
-              },
-            ],
-            maxTokens: 1024,
-          });
-        } catch {
-          // Sampling not supported — fall back to resource notifications
-          try {
-            server.sendResourceUpdated({ uri: `agent-bridge://inbox/${wsId}` });
-          } catch {}
-        }
-      });
+      sessions[transport.sessionId] = { transport, server, wsId: null, subscriber: null };
 
       res.on("close", () => {
-        unsubscribe();
+        const session = sessions[transport.sessionId];
+        if (session?.subscriber) {
+          session.subscriber.quit().catch(() => {});
+        }
         delete sessions[transport.sessionId];
+        console.error(`[session] Disconnected: ${transport.sessionId}`);
       });
 
       await server.connect(transport);
+      console.error(`[session] Connected: ${transport.sessionId}`);
     });
 
     app.post("/messages", async (req, res) => {
@@ -248,7 +290,7 @@ async function main() {
       }
     });
 
-    // REST API for hooks, CLI, and external integrations
+    // REST API
     app.use(express.json());
 
     app.post("/api/register", async (req, res) => {
@@ -278,6 +320,7 @@ async function main() {
         status: "ok",
         mode: "sse",
         connections: Object.keys(sessions).length,
+        subscribed: Object.values(sessions).filter((s) => s.wsId).map((s) => s.wsId),
       });
     });
 
@@ -285,20 +328,58 @@ async function main() {
       console.error(`Agent Bridge MCP server (SSE) listening on http://0.0.0.0:${PORT}`);
       console.error(`  SSE endpoint:  http://localhost:${PORT}/sse`);
       console.error(`  Health check:  http://localhost:${PORT}/health`);
+      console.error(`  Channels:      ${WS_CHANNEL_PREFIX}<workspace-id> (per-workspace)`);
+      console.error(`                 ${WS_CHANNEL_PREFIX}broadcast (gossip/all)`);
     });
   } else {
-    // Stdio mode: single client
+    // Stdio mode — single client, subscribe after register
     const server = createServer();
 
-    onMessage((msg) => {
-      try {
-        if (msg.to === "*") {
-          server.sendResourceUpdated({ uri: "agent-bridge://status" });
-          server.sendResourceListChanged();
-        } else {
-          server.sendResourceUpdated({ uri: `agent-bridge://inbox/${msg.to}` });
-        }
-      } catch {}
+    // For stdio, wrap register to subscribe
+    let stdioPubSub = null;
+    const origCallHandler = server._requestHandlers?.get("tools/call");
+
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      const result = await handleTool(name, args || {});
+
+      if (name === "register" && args?.workspace_id) {
+        // Subscribe to this workspace's channel
+        if (stdioPubSub) stdioPubSub.quit().catch(() => {});
+        stdioPubSub = createSubscriber();
+        await stdioPubSub.connect();
+        await stdioPubSub.subscribe(
+          `${WS_CHANNEL_PREFIX}${args.workspace_id}`,
+          `${WS_CHANNEL_PREFIX}broadcast`
+        );
+        stdioPubSub.on("message", async (channel, raw) => {
+          try {
+            const msg = JSON.parse(raw);
+            if (channel === `${WS_CHANNEL_PREFIX}broadcast` && msg.from === args.workspace_id) return;
+            try {
+              await server.createMessage({
+                messages: [
+                  {
+                    role: "user",
+                    content: {
+                      type: "text",
+                      text: `[AGENT BRIDGE] New message from "${msg.from}" (${msg.type}): ${msg.content}\n\nYou MUST: 1) call receive("${args.workspace_id}") to mark as read, 2) respond using send()`,
+                    },
+                  },
+                ],
+                maxTokens: 1024,
+              });
+            } catch {
+              try {
+                server.sendResourceUpdated({ uri: `agent-bridge://inbox/${args.workspace_id}` });
+              } catch {}
+            }
+          } catch {}
+        });
+        console.error(`Subscribed to channel: ${WS_CHANNEL_PREFIX}${args.workspace_id}`);
+      }
+
+      return result;
     });
 
     const transport = new StdioServerTransport();
