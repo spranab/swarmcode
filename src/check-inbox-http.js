@@ -11,7 +11,6 @@ import { resolve } from "path";
 
 let BASE_URL = process.env.AGENT_BRIDGE_URL;
 let WORKSPACE_ID = process.env.AGENT_BRIDGE_WORKSPACE_ID;
-let WORKSPACE_NAME = "";
 
 // Try to read from .mcp.json
 if (!BASE_URL || !WORKSPACE_ID) {
@@ -21,7 +20,6 @@ if (!BASE_URL || !WORKSPACE_ID) {
     const server = mcpConfig?.mcpServers?.["agent-bridge"];
     if (server) {
       WORKSPACE_ID = WORKSPACE_ID || server.headers?.["x-workspace-id"];
-      WORKSPACE_NAME = server.headers?.["x-workspace-name"] || "";
       if (server.url) {
         const parsed = new URL(server.url);
         BASE_URL = BASE_URL || `${parsed.protocol}//${parsed.host}`;
@@ -42,8 +40,7 @@ try {
   const messages = data.messages || [];
 
   // Always output workspace identity
-  const nameStr = WORKSPACE_NAME ? ` ("${WORKSPACE_NAME}")` : "";
-  console.log(`[AGENT BRIDGE] You are workspace "${WORKSPACE_ID}"${nameStr}. Use this ID for all agent-bridge tool calls (register, send, receive).`);
+  console.log(`[AGENT BRIDGE] You are workspace "${WORKSPACE_ID}". Use this ID for all agent-bridge tool calls (register, send, receive).`);
 
   if (messages.length === 0) {
     process.exit(0);
