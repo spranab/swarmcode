@@ -9,7 +9,7 @@ spec:
     kind: ClusterIssuer
     name: letsencrypt-cloudflare-prod
   dnsNames:
-    - mcp.mycluster.cyou
+    - agent-bridge.mcp.mycluster.cyou
   secretTemplate:
     labels:
       app: agent-bridge
@@ -29,10 +29,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - mcp.mycluster.cyou
+        - agent-bridge.mcp.mycluster.cyou
       secretName: agent-bridge-tls
   rules:
-    - host: mcp.mycluster.cyou
+    - host: agent-bridge.mcp.mycluster.cyou
       http:
         paths:
           - path: /
