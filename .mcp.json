@@ -6,7 +6,7 @@
         "C:\\Users\\sync\\codes\\agent-bridge\\src\\channel.js"
       ],
       "env": {
-        "AGENT_BRIDGE_REDIS_URL": "redis://192.168.4.161:30379",
+        "AGENT_BRIDGE_REDIS_URL": "redis://redis.mcp.mycluster.cyou:30379",
         "AGENT_BRIDGE_WORKSPACE_ID": "agent-bridge-dev"
       }
     }
