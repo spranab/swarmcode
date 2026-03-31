@@ -12,8 +12,7 @@
  */
 
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { resolve } from "path";
 
 const args = process.argv.slice(2);
 
@@ -31,7 +30,6 @@ const redisIdx = args.indexOf("--redis");
 const redisUrl = redisIdx !== -1 ? args[redisIdx + 1] : "redis://localhost:6379";
 const cwd = process.cwd();
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 // No hardcoded paths — use npx to resolve from installed package
 
 // 1. Create/update .mcp.json (merges — preserves other MCP servers)
@@ -73,7 +71,7 @@ if (existsSync(settingsPath)) {
 
 const hookEntry = {
   matcher: "",
-  hooks: [{ type: "command", command: `AGENT_BRIDGE_REDIS_URL=${redisUrl} AGENT_BRIDGE_WORKSPACE_ID=${workspaceId} npx -y mcp-agent-bridge listen`, timeout: 10000 }],
+  hooks: [{ type: "command", command: `AGENT_BRIDGE_REDIS_URL=${redisUrl} AGENT_BRIDGE_WORKSPACE_ID=${workspaceId} npx -y mcp-agent-bridge check`, timeout: 5000 }],
 };
 
 settings.hooks = settings.hooks || {};
