@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 
 /**
- * Persistent Redis listener for Agent Bridge.
+ * One-shot Redis listener for Agent Bridge.
  *
- * Runs as a long-lived background task. On each incoming message,
- * writes it to a queue file (.agent-bridge-inbox) in the current directory.
- * The UserPromptSubmit hook reads this file on each turn.
+ * Subscribes to workspace channel, waits for ONE message, outputs it, exits.
+ * The exit triggers a task-notification in Claude Code.
+ * Claude processes the message, then starts a new listener.
  *
- * Never exits (unless Redis disconnects or 10-min idle timeout).
+ * This creates a real-time event loop:
+ *   listener → message → exit → task-notification → process → new listener → repeat
  */
 
 import Redis from "ioredis";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync } from "fs";
 import { resolve } from "path";
 
 const REDIS_URL = process.env.AGENT_BRIDGE_REDIS_URL || "redis://localhost:6379";
@@ -33,11 +34,6 @@ if (!WORKSPACE_ID) {
   process.exit(1);
 }
 
-// Use AGENT_BRIDGE_QUEUE_DIR env if set, otherwise cwd
-const queueDir = process.env.AGENT_BRIDGE_QUEUE_DIR || process.cwd();
-const QUEUE_FILE = resolve(queueDir, ".agent-bridge-inbox");
-console.error(`Queue file: ${QUEUE_FILE}`);
-
 const sub = new Redis(REDIS_URL);
 
 await sub.subscribe(
@@ -45,36 +41,26 @@ await sub.subscribe(
   `${WS_CHANNEL_PREFIX}broadcast`
 );
 
-console.log(`Listening on ${WS_CHANNEL_PREFIX}${WORKSPACE_ID}`);
-
 sub.on("message", async (ch, raw) => {
   try {
     const msg = JSON.parse(raw);
     if (msg.from === WORKSPACE_ID) return;
 
-    // Append to queue file
-    let queue = [];
-    if (existsSync(QUEUE_FILE)) {
-      try {
-        queue = JSON.parse(readFileSync(QUEUE_FILE, "utf-8"));
-      } catch {}
-    }
-    queue.push(msg);
-    try {
-      writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
-    } catch (writeErr) {
-      console.error(`Failed to write queue file: ${writeErr.message}`);
-    }
-
     const prio = msg.priority === "high" || msg.priority === "urgent" ? ` [${msg.priority.toUpperCase()}]` : "";
-    console.log(`[${new Date().toISOString()}] ${msg.from}${prio}: ${msg.content.slice(0, 100)}`);
-  } catch (err) {
-    console.error(`Message handler error: ${err.message}`);
-  }
-});
+    console.log(`New message from "${msg.from}"${prio} (${msg.type}): ${msg.content}`);
+    console.log(`\nYou MUST do ALL of these in order:`);
+    console.log(`1. Call bridge_receive() to mark as read`);
+    console.log(`2. Reply with bridge_send(to: "${msg.from}", type: "answer", content: "your reply")`);
+    console.log(`3. IMMEDIATELY run: Bash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen`);
+  } catch {}
 
-// Keep alive — no timeout, runs until killed
-process.on("SIGINT", async () => {
   await sub.quit();
   process.exit(0);
 });
+
+// Timeout after 10 minutes — Claude should restart
+setTimeout(async () => {
+  console.log("Listener timeout — no messages. Restart with: Bash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen");
+  await sub.quit();
+  process.exit(0);
+}, 10 * 60 * 1000);
