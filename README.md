@@ -1,15 +1,40 @@
 # Agent Bridge
 
-Real-time communication between Claude Code instances across machines and workspaces.
+**The missing networking layer for Claude Code.** Real-time communication between Claude Code instances across machines, workspaces, and conversations.
+
+While Claude Desktop gives you one AI in one window, Agent Bridge gives you a **distributed team of Claude agents** that talk to each other, share context, and coordinate work — across your desktop, laptop, server, or any machine on your network.
 
 ```
-Desktop                        Laptop
-  Claude A ──► Redis ◄── Claude B
-         bridge_send    bridge_receive
-              pub/sub channels
+Desktop (VS Code)          Laptop (VS Code)           Server
+  Claude A ───────────────── Claude B ───────────────── Claude C
+       \                      |                       /
+        -------- Redis (single instance) ------------
+                       |
+                  Web Dashboard
+              (monitor & control)
 ```
 
-Agents can send messages, share artifacts, and coordinate work — across machines, workspaces, and conversations. Messages are delivered in real-time using Redis pub/sub and background task notifications.
+## What Can It Do?
+
+- **Cross-machine messaging** — Claude on your desktop sends a message, Claude on your laptop receives it instantly
+- **Real-time push** — no polling, messages delivered via Redis pub/sub + background task notifications
+- **Workspace awareness** — every agent knows what the others are working on
+- **Artifact sharing** — share schemas, configs, interfaces across workspaces
+- **Web dashboard** — monitor all workspaces, send messages from your browser
+- **Auto-setup** — one command initializes any workspace
+
+## vs Claude Desktop
+
+| | Claude Desktop | Agent Bridge |
+|--|---------------|-------------|
+| Cross-machine communication | No | Yes |
+| Multi-workspace coordination | No — each window isolated | Yes — agents talk to each other |
+| Real-time push notifications | No | Yes |
+| Artifact/schema sharing | No | Yes |
+| Web dashboard | No | Yes |
+| Works in VS Code | No | Yes |
+| Cross-platform | Mac only | Mac, Windows, Linux |
+| Open source | No | Yes (MIT) |
 
 ## Quick Start
 
@@ -19,78 +44,36 @@ Agents can send messages, share artifacts, and coordinate work — across machin
 npm install -g mcp-agent-bridge
 ```
 
-### 2. Have Redis running
+### 2. Start Redis (or use an existing one)
 
 ```bash
-# Local
 docker run -d --name redis -p 6379:6379 redis:alpine
-
-# Or use any accessible Redis (cloud, K8s, etc.)
 ```
 
 ### 3. Initialize a workspace
 
 ```bash
-npx mcp-agent-bridge init my-workspace --redis redis://your-redis:6379
+mcp-agent-bridge init my-workspace --redis redis://your-redis:6379
 ```
 
-This creates two files and registers with the bridge:
+That's it. Restart Claude Code. Your workspace is connected.
 
-**`.mcp.json`** — channel MCP server (direct Redis):
-```json
-{
-  "mcpServers": {
-    "agent-bridge-channel": {
-      "command": "node",
-      "args": ["/path/to/channel.js"],
-      "env": {
-        "AGENT_BRIDGE_REDIS_URL": "redis://your-redis:6379",
-        "AGENT_BRIDGE_WORKSPACE_ID": "my-workspace"
-      }
-    }
-  }
-}
-```
+Repeat on any other machine/workspace — all pointing at the same Redis.
 
-**`.claude/settings.json`** — hook for inbox check on each prompt:
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/check-inbox-http.js",
-            "timeout": 5000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+## How It Works
 
-Restart Claude Code and the bridge is active.
-
-### 4. Real-time message loop
-
-Claude automatically starts this loop based on the MCP instructions:
+### Real-time message loop
 
 ```
-1. Start background listener:  Bash(run_in_background) → npx mcp-agent-bridge listen
-2. Block-wait for message:     TaskOutput(task_id, block=true, timeout=600000)
-3. Message arrives → listener exits → TaskOutput returns the message
-4. Process: bridge_receive() → bridge_send() reply
-5. Restart from step 1
+1. Background listener subscribes to Redis pub/sub channel
+2. Message arrives → listener exits → task-notification fires in VS Code
+3. Claude reads the message → bridge_receive() → bridge_send() reply
+4. New listener started → back to step 1
 ```
 
-No polling. No cron. No user input. True real-time event loop in VS Code.
+No polling. No cron. True event-driven push in VS Code.
 
 ### Per-workspace isolation
-
-Each workspace gets its own Redis pub/sub channel:
 
 ```
 agent-bridge:ws:desktop-api       ← only desktop-api hears this
@@ -98,100 +81,107 @@ agent-bridge:ws:laptop-frontend   ← only laptop-frontend hears this
 agent-bridge:ws:broadcast         ← everyone hears this (to="*")
 ```
 
-Messages are stored in per-workspace inbox lists with 24h TTL. Workspace registrations expire after 2h of inactivity.
+### Backup polling
+
+A 5-minute CronCreate runs alongside the listener as a safety net.
 
 ## Tools
-
-The channel MCP server exposes these tools to Claude:
 
 | Tool | Description |
 |------|-------------|
 | `bridge_send` | Send a message to a workspace or broadcast (`to: "*"`) |
-| `bridge_receive` | Read pending messages and mark as read |
+| `bridge_receive` | Read and mark pending messages as read |
 | `bridge_status` | See all registered workspaces |
 | `bridge_register` | Register/update this workspace's description |
 
-## Message Types
+## Web Dashboard
 
-| Type | When to use |
-|------|-------------|
-| `info` | General notifications ("API is ready") |
-| `request` | Asking another workspace to do something |
-| `question` | Asking for information |
-| `answer` | Responding to a question |
-| `decision` | Recording a design decision |
-| `artifact` | Sharing code, schemas, configs |
-
-## Deployment
-
-### All you need is Redis
-
-Every workspace connects to the same Redis. Options:
+Monitor and control all workspaces from your browser.
 
 ```bash
-# Local Docker
-docker run -d --name redis -p 6379:6379 redis:alpine
-
-# Kubernetes (included in k8s/ manifests)
-kubectl apply -f k8s/namespace.yml
-kubectl apply -f k8s/redis.yml
-
-# Cloud (Upstash, Redis Cloud, etc.)
-# Just use the connection URL
+docker run -d -p 4200:4200 \
+  -e AGENT_BRIDGE_REDIS_URL=redis://your-redis:6379 \
+  -e DASHBOARD_USER=admin \
+  -e DASHBOARD_PASS=your-password \
+  ghcr.io/spranab/agent-bridge-dashboard:latest
 ```
 
-### Kubernetes manifests
-
-Included in `k8s/` for Redis with NodePort exposure:
-
-```bash
-kubectl apply -f k8s/namespace.yml
-kubectl apply -f k8s/redis.yml    # includes NodePort on 30379
-```
+Features:
+- All workspaces with active/idle status
+- Per-workspace inbox viewer
+- Global message log (real-time via SSE)
+- Send messages to any workspace
+- Dark theme
 
 ## Architecture
 
 ```
 src/
-├── channel.js          # MCP server — tools + Redis pub/sub subscriber
-├── listener.js         # One-shot Redis listener for background task notifications
-├── check-inbox-http.js # Hook script — checks inbox on each prompt (fallback)
-├── init.js             # CLI — initialize a workspace in one command
-└── server.js           # CLI entry point — routes to init/channel/listen
+├── channel.js          # MCP server — tools + Redis pub/sub + instructions
+├── listener.js         # One-shot Redis listener → task-notification push
+├── check-inbox-http.js # UserPromptSubmit hook — inbox check on each prompt
+├── init.js             # CLI — one-command workspace setup
+└── server.js           # CLI entry point
+
+dashboard/
+├── server.js           # Express app with SSE, basic auth, REST API
+└── index.html          # Real-time dashboard UI
 ```
 
 ## Configuration
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `AGENT_BRIDGE_REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
-| `AGENT_BRIDGE_WORKSPACE_ID` | (from .mcp.json) | This workspace's ID |
-| `AGENT_BRIDGE_PREFIX` | `agent-bridge:` | Redis key prefix |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_BRIDGE_REDIS_URL` | `redis://localhost:6379` | Redis connection |
+| `AGENT_BRIDGE_WORKSPACE_ID` | (from .mcp.json) | Workspace identifier |
+| `DASHBOARD_USER` | `admin` | Dashboard username |
+| `DASHBOARD_PASS` | `bridge` | Dashboard password |
+| `DASHBOARD_PORT` | `4200` | Dashboard port |
 
-## Example Session
+## Kubernetes
+
+Redis + Dashboard manifests in `k8s/`:
+
+```bash
+kubectl apply -f k8s/namespace.yml
+kubectl apply -f k8s/redis.yml       # includes NodePort on 30379
+kubectl apply -f k8s/dashboard.yml
+kubectl apply -f k8s/ingress.yml     # edit hostname
+```
+
+## Example: Two Agents Collaborating
 
 **Desktop** (building API):
 ```
-> bridge_register("Building user auth API")
-> bridge_send(to: "laptop-frontend", type: "info", content: "POST /api/users is live")
+> bridge_register("Building user auth REST API")
+> bridge_send(to: "laptop", type: "info", content: "POST /api/users is live, schema: {id, email, role}")
 ```
 
-**Laptop** (building frontend — receives message in real-time):
+**Laptop** (building frontend — receives in real-time):
 ```
-[task-notification] New message from "desktop-api": POST /api/users is live
-
-> bridge_receive()  // mark as read
-> bridge_send(to: "desktop-api", type: "question", content: "Does /api/users support pagination?")
-```
-
-**Desktop** (receives reply in real-time):
-```
-[task-notification] New message from "laptop-frontend": Does /api/users support pagination?
+[task-notification] New message from "desktop": POST /api/users is live...
 
 > bridge_receive()
-> bridge_send(to: "laptop-frontend", type: "answer", content: "Yes, use ?page=1&limit=20")
+> bridge_send(to: "desktop", type: "question", content: "Does /api/users support pagination?")
 ```
+
+**Desktop** (receives instantly):
+```
+[task-notification] New message from "laptop": Does /api/users support pagination?
+
+> bridge_receive()
+> bridge_send(to: "laptop", type: "answer", content: "Yes, use ?page=1&limit=20")
+```
+
+All automatic. No user intervention needed.
+
+## Built With
+
+- [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) — tool interface
+- [Redis](https://redis.io/) — pub/sub + message storage
+- [ioredis](https://github.com/redis/ioredis) — Redis client
+- [Claude Code](https://claude.ai/code) — the agents
 
 ## License
 
-MIT — Pranab Sarkar
+MIT — [Pranab Sarkar](https://github.com/spranab)
