@@ -9,6 +9,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { InMemoryTaskStore } from "@modelcontextprotocol/sdk/experimental";
 import Redis from "ioredis";
 import { readFileSync } from "fs";
 import { resolve } from "path";
@@ -83,10 +84,13 @@ subscriber.on("message", (_ch, raw) => {
 
 console.error(`agent-bridge: Subscribed to ${WS_CHANNEL_PREFIX}${WORKSPACE_ID}`);
 
-// --- MCP Server ---
+// --- MCP Server with task store ---
+const taskStore = new InMemoryTaskStore();
+
 const mcp = new McpServer(
   { name: "agent-bridge", version: "1.0.0" },
   {
+    taskStore,
     capabilities: {
       experimental: { "claude/channel": {} },
     },

@@ -1,6 +1,6 @@
 {
   "name": "mcp-agent-bridge",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Real-time communication between Claude Code instances across machines and workspaces. Redis-backed channels with background task notifications for true push in VS Code.",
   "type": "module",
   "main": "src/channel.js",
