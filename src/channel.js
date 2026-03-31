@@ -98,22 +98,19 @@ const mcp = new McpServer(
 
 Your workspace_id is "${WORKSPACE_ID}".
 
-## CRITICAL: Start the real-time message loop at the beginning of every conversation.
+## CRITICAL: Start the background listener at the beginning of every conversation.
 
-Run these two steps to start receiving messages in real-time:
-
-Step 1: Start the background listener:
+Run this to start receiving messages in real-time:
   Bash(run_in_background=true, timeout=600000): AGENT_BRIDGE_REDIS_URL=${REDIS_URL} AGENT_BRIDGE_WORKSPACE_ID=${WORKSPACE_ID} npx -y mcp-agent-bridge listen
 
-Step 2: Block-wait for the message:
-  TaskOutput(task_id=<id from step 1>, block=true, timeout=600000)
+The listener runs in the background. When a message arrives, you get a task-notification.
+When you see the notification:
+1. Read the task output file to see the message
+2. Call bridge_receive() to mark messages as read
+3. Reply with bridge_send(to: "sender", type: "answer", content: "...")
+4. Start a new listener (same command as above)
 
-When a message arrives, TaskOutput returns the message. Then:
-1. Call bridge_receive() to mark messages as read
-2. Reply with bridge_send(to: "sender", type: "answer", content: "...")
-3. Repeat steps 1-2 to keep listening
-
-This creates a true real-time event loop with zero user intervention.
+This keeps you free to interact with the user while listening for messages.
 
 ## Tools
 - bridge_send — send a message to another workspace (or to="*" for broadcast)
