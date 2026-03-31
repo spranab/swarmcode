@@ -32,8 +32,7 @@ const redisUrl = redisIdx !== -1 ? args[redisIdx + 1] : "redis://localhost:6379"
 const cwd = process.cwd();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const channelScript = resolve(__dirname, "channel.js");
-const hookScript = resolve(__dirname, "check-inbox-http.js");
+// No hardcoded paths — use npx to resolve from installed package
 
 // 1. Create/update .mcp.json (merges — preserves other MCP servers)
 const mcpPath = resolve(cwd, ".mcp.json");
@@ -48,8 +47,8 @@ mcpConfig.mcpServers = mcpConfig.mcpServers || {};
 delete mcpConfig.mcpServers["agent-bridge"];
 // Channel server — direct Redis, real-time push
 mcpConfig.mcpServers["agent-bridge-channel"] = {
-  command: "node",
-  args: [channelScript],
+  command: "agent-bridge-channel",
+  args: [],
   env: {
     AGENT_BRIDGE_REDIS_URL: redisUrl,
     AGENT_BRIDGE_WORKSPACE_ID: workspaceId,
@@ -72,24 +71,24 @@ if (existsSync(settingsPath)) {
   } catch {}
 }
 
-const escapedScript = hookScript.replace(/\\/g, "\\\\");
 const hookEntry = {
   matcher: "",
-  hooks: [{ type: "command", command: `node ${escapedScript}`, timeout: 5000 }],
+  hooks: [{ type: "command", command: `AGENT_BRIDGE_REDIS_URL=${redisUrl} AGENT_BRIDGE_WORKSPACE_ID=${workspaceId} agent-bridge listen`, timeout: 10000 }],
 };
 
 settings.hooks = settings.hooks || {};
 for (const event of ["UserPromptSubmit"]) {
   settings.hooks[event] = settings.hooks[event] || [];
+  // Remove old agent-bridge hooks
   settings.hooks[event] = settings.hooks[event].filter(
-    (h) => !h.hooks?.some((hook) => hook.command?.includes("check-inbox"))
+    (h) => !h.hooks?.some((hook) => hook.command?.includes("agent-bridge") || hook.command?.includes("check-inbox"))
   );
   settings.hooks[event].push(hookEntry);
 }
-// Remove old Stop hook (not useful in VS Code)
+// Remove old Stop hook
 if (settings.hooks.Stop) {
   settings.hooks.Stop = settings.hooks.Stop.filter(
-    (h) => !h.hooks?.some((hook) => hook.command?.includes("check-inbox"))
+    (h) => !h.hooks?.some((hook) => hook.command?.includes("agent-bridge") || hook.command?.includes("check-inbox"))
   );
   if (settings.hooks.Stop.length === 0) delete settings.hooks.Stop;
 }
