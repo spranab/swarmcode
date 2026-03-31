@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: agent-bridge-dashboard
+  name: swarmcode-dashboard
   namespace: mcp
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: agent-bridge-dashboard
+      app: swarmcode-dashboard
   template:
     metadata:
       labels:
-        app: agent-bridge-dashboard
+        app: swarmcode-dashboard
     spec:
       imagePullSecrets:
         - name: harbor-secret
       containers:
         - name: dashboard
-          image: harbor.mycluster.cyou/mcp/agent-bridge-dashboard:latest
+          image: harbor.mycluster.cyou/mcp/swarmcode-dashboard:latest
           ports:
             - containerPort: 4200
           env:
-            - name: AGENT_BRIDGE_REDIS_URL
+            - name: SWARMCODE_REDIS_URL
               value: redis://redis.mcp.svc.cluster.local:6379
             - name: DASHBOARD_PORT
               value: "4200"
@@ -52,11 +52,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: agent-bridge-dashboard
+  name: swarmcode-dashboard
   namespace: mcp
 spec:
   selector:
-    app: agent-bridge-dashboard
+    app: swarmcode-dashboard
   ports:
     - port: 80
       targetPort: 4200

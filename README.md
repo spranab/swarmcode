@@ -1,8 +1,8 @@
-# Agent Bridge
+# SwarmCode
 
 **The missing networking layer for Claude Code.** Real-time communication between Claude Code instances across machines, workspaces, and conversations.
 
-While Claude Desktop gives you one AI in one window, Agent Bridge gives you a **distributed team of Claude agents** that talk to each other, share context, and coordinate work — across your desktop, laptop, server, or any machine on your network.
+While Claude Desktop gives you one AI in one window, SwarmCode gives you a **distributed team of Claude agents** that talk to each other, share context, and coordinate work — across your desktop, laptop, server, or any machine on your network.
 
 ```
 Desktop (VS Code)          Laptop (VS Code)           Server
@@ -25,7 +25,7 @@ Desktop (VS Code)          Laptop (VS Code)           Server
 
 ## vs Claude Desktop
 
-| | Claude Desktop | Agent Bridge |
+| | Claude Desktop | SwarmCode |
 |--|---------------|-------------|
 | Cross-machine communication | No | Yes |
 | Multi-workspace coordination | No — each window isolated | Yes — agents talk to each other |
@@ -41,7 +41,7 @@ Desktop (VS Code)          Laptop (VS Code)           Server
 ### 1. Install
 
 ```bash
-npm install -g mcp-agent-bridge
+npm install -g swarmcode
 ```
 
 ### 2. Start Redis (or use an existing one)
@@ -53,7 +53,7 @@ docker run -d --name redis -p 6379:6379 redis:alpine
 ### 3. Initialize a workspace
 
 ```bash
-mcp-agent-bridge init my-workspace --redis redis://your-redis:6379
+swarmcode init my-workspace --redis redis://your-redis:6379
 ```
 
 That's it. Restart Claude Code. Your workspace is connected.
@@ -67,7 +67,7 @@ Repeat on any other machine/workspace — all pointing at the same Redis.
 ```
 1. Background listener subscribes to Redis pub/sub channel
 2. Message arrives → listener exits → task-notification fires in VS Code
-3. Claude reads the message → bridge_receive() → bridge_send() reply
+3. Claude reads the message → swarm_receive() → swarm_send() reply
 4. New listener started → back to step 1
 ```
 
@@ -76,9 +76,9 @@ No polling. No cron. True event-driven push in VS Code.
 ### Per-workspace isolation
 
 ```
-agent-bridge:ws:desktop-api       ← only desktop-api hears this
-agent-bridge:ws:laptop-frontend   ← only laptop-frontend hears this
-agent-bridge:ws:broadcast         ← everyone hears this (to="*")
+swarmcode:ws:desktop-api       ← only desktop-api hears this
+swarmcode:ws:laptop-frontend   ← only laptop-frontend hears this
+swarmcode:ws:broadcast         ← everyone hears this (to="*")
 ```
 
 ### Backup polling
@@ -89,10 +89,10 @@ A 5-minute CronCreate runs alongside the listener as a safety net.
 
 | Tool | Description |
 |------|-------------|
-| `bridge_send` | Send a message to a workspace or broadcast (`to: "*"`) |
-| `bridge_receive` | Read and mark pending messages as read |
-| `bridge_status` | See all registered workspaces |
-| `bridge_register` | Register/update this workspace's description |
+| `swarm_send` | Send a message to a workspace or broadcast (`to: "*"`) |
+| `swarm_receive` | Read and mark pending messages as read |
+| `swarm_status` | See all registered workspaces |
+| `swarm_register` | Register/update this workspace's description |
 
 ## Web Dashboard
 
@@ -100,10 +100,10 @@ Monitor and control all workspaces from your browser.
 
 ```bash
 docker run -d -p 4200:4200 \
-  -e AGENT_BRIDGE_REDIS_URL=redis://your-redis:6379 \
+  -e SWARMCODE_REDIS_URL=redis://your-redis:6379 \
   -e DASHBOARD_USER=admin \
   -e DASHBOARD_PASS=your-password \
-  ghcr.io/spranab/agent-bridge-dashboard:latest
+  ghcr.io/spranab/swarmcode-dashboard:latest
 ```
 
 Features:
@@ -132,8 +132,8 @@ dashboard/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_BRIDGE_REDIS_URL` | `redis://localhost:6379` | Redis connection |
-| `AGENT_BRIDGE_WORKSPACE_ID` | (from .mcp.json) | Workspace identifier |
+| `SWARMCODE_REDIS_URL` | `redis://localhost:6379` | Redis connection |
+| `SWARMCODE_WORKSPACE_ID` | (from .mcp.json) | Workspace identifier |
 | `DASHBOARD_USER` | `admin` | Dashboard username |
 | `DASHBOARD_PASS` | `bridge` | Dashboard password |
 | `DASHBOARD_PORT` | `4200` | Dashboard port |
@@ -153,24 +153,24 @@ kubectl apply -f k8s/ingress.yml     # edit hostname
 
 **Desktop** (building API):
 ```
-> bridge_register("Building user auth REST API")
-> bridge_send(to: "laptop", type: "info", content: "POST /api/users is live, schema: {id, email, role}")
+> swarm_register("Building user auth REST API")
+> swarm_send(to: "laptop", type: "info", content: "POST /api/users is live, schema: {id, email, role}")
 ```
 
 **Laptop** (building frontend — receives in real-time):
 ```
 [task-notification] New message from "desktop": POST /api/users is live...
 
-> bridge_receive()
-> bridge_send(to: "desktop", type: "question", content: "Does /api/users support pagination?")
+> swarm_receive()
+> swarm_send(to: "desktop", type: "question", content: "Does /api/users support pagination?")
 ```
 
 **Desktop** (receives instantly):
 ```
 [task-notification] New message from "laptop": Does /api/users support pagination?
 
-> bridge_receive()
-> bridge_send(to: "laptop", type: "answer", content: "Yes, use ?page=1&limit=20")
+> swarm_receive()
+> swarm_send(to: "laptop", type: "answer", content: "Yes, use ?page=1&limit=20")
 ```
 
 All automatic. No user intervention needed.

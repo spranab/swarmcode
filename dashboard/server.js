@@ -10,11 +10,11 @@ import { fileURLToPath } from "url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PORT = parseInt(process.env.DASHBOARD_PORT || "4200", 10);
-const REDIS_URL = process.env.AGENT_BRIDGE_REDIS_URL || "redis://localhost:6379";
+const REDIS_URL = process.env.SWARMCODE_REDIS_URL || "redis://localhost:6379";
 const USERNAME = process.env.DASHBOARD_USER || "admin";
 const PASSWORD = process.env.DASHBOARD_PASS || "bridge";
-const KEY_PREFIX = "agent-bridge:";
-const WS_CHANNEL_PREFIX = "agent-bridge:ws:";
+const KEY_PREFIX = "swarmcode:";
+const WS_CHANNEL_PREFIX = "swarmcode:ws:";
 
 const redis = new Redis(REDIS_URL, { keyPrefix: KEY_PREFIX });
 const publisher = new Redis(REDIS_URL);
@@ -30,12 +30,12 @@ app.use((req, res, next) => {
 
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Basic ")) {
-    res.set("WWW-Authenticate", 'Basic realm="Agent Bridge Dashboard"');
+    res.set("WWW-Authenticate", 'Basic realm="SwarmCode Dashboard"');
     return res.status(401).send("Authentication required");
   }
   const [user, pass] = Buffer.from(auth.split(" ")[1], "base64").toString().split(":");
   if (user !== USERNAME || pass !== PASSWORD) {
-    res.set("WWW-Authenticate", 'Basic realm="Agent Bridge Dashboard"');
+    res.set("WWW-Authenticate", 'Basic realm="SwarmCode Dashboard"');
     return res.status(401).send("Invalid credentials");
   }
   next();
@@ -137,7 +137,7 @@ app.get("/api/events", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Agent Bridge Dashboard: http://0.0.0.0:${PORT}`);
+  console.log(`SwarmCode Dashboard: http://0.0.0.0:${PORT}`);
   console.log(`  Redis: ${REDIS_URL}`);
   console.log(`  Auth: ${USERNAME} / ${"*".repeat(PASSWORD.length)}`);
 });

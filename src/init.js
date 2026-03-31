@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Initialize a workspace for Agent Bridge.
+ * Initialize a workspace for SwarmCode.
  *
  * Usage:
- *   npx mcp-agent-bridge init <workspace-id> [--redis <redis-url>]
- *
- * Examples:
- *   npx mcp-agent-bridge init desktop-api
- *   npx mcp-agent-bridge init laptop-frontend --redis redis://redis.mcp.mycluster.cyou:30379
+ *   swarmcode init <workspace-id> [--redis <redis-url>]
  */
 
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from "fs";
@@ -17,11 +13,11 @@ import { resolve } from "path";
 const args = process.argv.slice(2);
 
 if (args[0] !== "init" || !args[1]) {
-  console.log("Usage: mcp-agent-bridge init <workspace-id> [--redis <redis-url>]");
+  console.log("Usage: swarmcode init <workspace-id> [--redis <redis-url>]");
   console.log("");
   console.log("Examples:");
-  console.log("  npx mcp-agent-bridge init desktop-api");
-  console.log("  npx mcp-agent-bridge init laptop-frontend --redis redis://your-host:6379");
+  console.log("  swarmcode init desktop-api");
+  console.log("  swarmcode init laptop-frontend --redis redis://your-host:6379");
   process.exit(1);
 }
 
@@ -29,8 +25,6 @@ const workspaceId = args[1];
 const redisIdx = args.indexOf("--redis");
 const redisUrl = redisIdx !== -1 ? args[redisIdx + 1] : "redis://localhost:6379";
 const cwd = process.cwd();
-
-// No hardcoded paths — use npx to resolve from installed package
 
 // 1. Create/update .mcp.json (merges — preserves other MCP servers)
 const mcpPath = resolve(cwd, ".mcp.json");
@@ -42,14 +36,15 @@ if (existsSync(mcpPath)) {
 }
 mcpConfig.mcpServers = mcpConfig.mcpServers || {};
 // Remove old entries
+delete mcpConfig.mcpServers["agent-bridge"];
 delete mcpConfig.mcpServers["agent-bridge-channel"];
-// Agent Bridge MCP server
-mcpConfig.mcpServers["agent-bridge"] = {
+// SwarmCode MCP server
+mcpConfig.mcpServers["swarmcode"] = {
   command: "npx",
-  args: ["-y", "mcp-agent-bridge", "channel"],
+  args: ["-y", "swarmcode", "channel"],
   env: {
-    AGENT_BRIDGE_REDIS_URL: redisUrl,
-    AGENT_BRIDGE_WORKSPACE_ID: workspaceId,
+    SWARMCODE_REDIS_URL: redisUrl,
+    SWARMCODE_WORKSPACE_ID: workspaceId,
   },
 };
 writeFileSync(mcpPath, JSON.stringify(mcpConfig, null, 2) + "\n");
@@ -71,22 +66,22 @@ if (existsSync(settingsPath)) {
 
 const hookEntry = {
   matcher: "",
-  hooks: [{ type: "command", command: `AGENT_BRIDGE_REDIS_URL=${redisUrl} AGENT_BRIDGE_WORKSPACE_ID=${workspaceId} npx -y mcp-agent-bridge check`, timeout: 5000 }],
+  hooks: [{ type: "command", command: `SWARMCODE_REDIS_URL=${redisUrl} SWARMCODE_WORKSPACE_ID=${workspaceId} npx -y swarmcode check`, timeout: 5000 }],
 };
 
 settings.hooks = settings.hooks || {};
 for (const event of ["UserPromptSubmit"]) {
   settings.hooks[event] = settings.hooks[event] || [];
-  // Remove old agent-bridge hooks
+  // Remove old agent-bridge and swarmcode hooks
   settings.hooks[event] = settings.hooks[event].filter(
-    (h) => !h.hooks?.some((hook) => hook.command?.includes("agent-bridge") || hook.command?.includes("check-inbox"))
+    (h) => !h.hooks?.some((hook) => hook.command?.includes("agent-bridge") || hook.command?.includes("swarmcode") || hook.command?.includes("check-inbox"))
   );
   settings.hooks[event].push(hookEntry);
 }
-// Remove old Stop hook
+// Remove old Stop hooks
 if (settings.hooks.Stop) {
   settings.hooks.Stop = settings.hooks.Stop.filter(
-    (h) => !h.hooks?.some((hook) => hook.command?.includes("agent-bridge") || hook.command?.includes("check-inbox"))
+    (h) => !h.hooks?.some((hook) => hook.command?.includes("agent-bridge") || hook.command?.includes("swarmcode") || hook.command?.includes("check-inbox"))
   );
   if (settings.hooks.Stop.length === 0) delete settings.hooks.Stop;
 }
@@ -97,7 +92,7 @@ console.log(`✓ .claude/settings.json — hook: UserPromptSubmit`);
 // 3. Register with Redis directly
 try {
   const { default: Redis } = await import("ioredis");
-  const redis = new Redis(redisUrl, { keyPrefix: "agent-bridge:" });
+  const redis = new Redis(redisUrl, { keyPrefix: "swarmcode:" });
   const workspace = {
     id: workspaceId,
     description: `Workspace ${workspaceId}`,

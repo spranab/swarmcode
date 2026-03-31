@@ -1,23 +1,23 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: agent-bridge-tls
+  name: swarmcode-tls
   namespace: mcp
 spec:
-  secretName: agent-bridge-tls
+  secretName: swarmcode-tls
   issuerRef:
     kind: ClusterIssuer
     name: letsencrypt-cloudflare-prod
   dnsNames:
-    - agent-bridge.mcp.mycluster.cyou
+    - swarmcode.mcp.mycluster.cyou
   secretTemplate:
     labels:
-      app: agent-bridge-dashboard
+      app: swarmcode-dashboard
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: agent-bridge-dashboard
+  name: swarmcode-dashboard
   namespace: mcp
   annotations:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
@@ -27,16 +27,16 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - agent-bridge.mcp.mycluster.cyou
-      secretName: agent-bridge-tls
+        - swarmcode.mcp.mycluster.cyou
+      secretName: swarmcode-tls
   rules:
-    - host: agent-bridge.mcp.mycluster.cyou
+    - host: swarmcode.mcp.mycluster.cyou
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: agent-bridge-dashboard
+                name: swarmcode-dashboard
                 port:
                   number: 80

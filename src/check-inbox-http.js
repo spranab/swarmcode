@@ -1,30 +1,31 @@
 #!/usr/bin/env node
 
 /**
- * Fast inbox checker hook for Claude Code.
- *
- * Priority order:
- *   1. Queue file (.agent-bridge-inbox) — written by persistent listener, instant read
- *   2. Direct Redis — fallback if listener isn't running
- *
- * Clears the queue file after reading so messages aren't shown twice.
+ * SwarmCode fast inbox checker hook for Claude Code.
+ * Reads from Redis, outputs actionable directives.
  */
 
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { readFileSync, existsSync, unlinkSync } from "fs";
 import { resolve } from "path";
 
-let WORKSPACE_ID = process.env.AGENT_BRIDGE_WORKSPACE_ID;
-let REDIS_URL = process.env.AGENT_BRIDGE_REDIS_URL;
+let WORKSPACE_ID = process.env.SWARMCODE_WORKSPACE_ID || process.env.AGENT_BRIDGE_WORKSPACE_ID;
+let REDIS_URL = process.env.SWARMCODE_REDIS_URL || process.env.AGENT_BRIDGE_REDIS_URL;
 
-// Read from .mcp.json if not set
 if (!WORKSPACE_ID || !REDIS_URL) {
   try {
     const mcpPath = resolve(process.cwd(), ".mcp.json");
     const mcpConfig = JSON.parse(readFileSync(mcpPath, "utf-8"));
-    const bridge = mcpConfig?.mcpServers?.["agent-bridge"];
-    if (bridge?.env) {
-      WORKSPACE_ID = WORKSPACE_ID || bridge.env.AGENT_BRIDGE_WORKSPACE_ID;
-      REDIS_URL = REDIS_URL || bridge.env.AGENT_BRIDGE_REDIS_URL;
+    const sc = mcpConfig?.mcpServers?.["swarmcode"];
+    if (sc?.env) {
+      WORKSPACE_ID = WORKSPACE_ID || sc.env.SWARMCODE_WORKSPACE_ID;
+      REDIS_URL = REDIS_URL || sc.env.SWARMCODE_REDIS_URL;
+    }
+    if (!WORKSPACE_ID) {
+      const ab = mcpConfig?.mcpServers?.["agent-bridge"];
+      if (ab?.env) {
+        WORKSPACE_ID = WORKSPACE_ID || ab.env.AGENT_BRIDGE_WORKSPACE_ID;
+        REDIS_URL = REDIS_URL || ab.env.AGENT_BRIDGE_REDIS_URL;
+      }
     }
   } catch {}
 }
@@ -33,37 +34,24 @@ if (!WORKSPACE_ID) {
   process.exit(0);
 }
 
-const queueDir = process.env.AGENT_BRIDGE_QUEUE_DIR || process.cwd();
-const QUEUE_FILE = resolve(queueDir, ".agent-bridge-inbox");
-
-// 1. Try queue file first (instant — written by persistent listener)
 let messages = [];
-if (existsSync(QUEUE_FILE)) {
-  try {
-    messages = JSON.parse(readFileSync(QUEUE_FILE, "utf-8"));
-    // Clear the queue after reading
-    unlinkSync(QUEUE_FILE);
-  } catch {}
-}
 
-// 2. Fall back to Redis if no queue file (listener not running)
-if (messages.length === 0 && REDIS_URL) {
+// Check Redis
+if (REDIS_URL) {
   try {
     const { default: Redis } = await import("ioredis");
-    const redis = new Redis(REDIS_URL, { keyPrefix: "agent-bridge:" });
+    const redis = new Redis(REDIS_URL, { keyPrefix: "swarmcode:" });
     const raw = await redis.lrange(`inbox:${WORKSPACE_ID}`, 0, -1);
     messages = raw.map((m) => JSON.parse(m)).reverse();
-    // Don't clear Redis inbox here — bridge_receive handles that
     await redis.quit();
   } catch {}
 }
 
 if (messages.length === 0) {
-  console.log(`[AGENT BRIDGE] You are workspace "${WORKSPACE_ID}".`);
+  console.log(`[SWARMCODE] You are workspace "${WORKSPACE_ID}".`);
   process.exit(0);
 }
 
-// Build directives
 const lines = [];
 const actions = [];
 
@@ -81,7 +69,7 @@ for (const msg of messages) {
 
   switch (msg.type) {
     case "question":
-      actions.push(`REPLY to "${msg.from}": Answer using bridge_send(to: "${msg.from}", type: "answer", content: "your answer")`);
+      actions.push(`REPLY to "${msg.from}": Answer using swarm_send(to: "${msg.from}", type: "answer", content: "your answer")`);
       break;
     case "request":
       actions.push(`ACT on request from "${msg.from}", then send confirmation back`);
@@ -93,7 +81,7 @@ for (const msg of messages) {
       break;
     case "info":
     case "decision":
-      actions.push(`ACKNOWLEDGE to "${msg.from}" using bridge_send(to: "${msg.from}", type: "info", content: "Acknowledged: ...")`);
+      actions.push(`ACKNOWLEDGE to "${msg.from}" using swarm_send(to: "${msg.from}", type: "info", content: "Acknowledged: ...")`);
       break;
     case "answer":
       actions.push(`APPLY the answer from "${msg.from}" to your current work`);
@@ -102,9 +90,9 @@ for (const msg of messages) {
 }
 
 lines.push("REQUIRED ACTIONS:");
-lines.push(`1. Call bridge_receive() to mark messages as read`);
+lines.push(`1. Call swarm_receive() to mark messages as read`);
 for (let i = 0; i < actions.length; i++) {
   lines.push(`${i + 2}. ${actions[i]}`);
 }
 
-console.log(`[AGENT BRIDGE] ${lines.join("\n")}`);
+console.log(`[SWARMCODE] ${lines.join("\n")}`);

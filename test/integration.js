@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * Integration test for Agent Bridge.
+ * Integration test for SwarmCode.
  * Tests Redis-level message passing between simulated workspaces.
  */
 
 import Redis from "ioredis";
 
-const REDIS_URL = process.env.AGENT_BRIDGE_REDIS_URL || "redis://localhost:6379";
-const PREFIX = "agent-bridge:";
-const WS_CHANNEL_PREFIX = "agent-bridge:ws:";
+const REDIS_URL = process.env.SWARMCODE_REDIS_URL || "redis://localhost:6379";
+const PREFIX = "swarmcode:";
+const WS_CHANNEL_PREFIX = "swarmcode:ws:";
 
 const redis = new Redis(REDIS_URL, { keyPrefix: PREFIX });
 const rawRedis = new Redis(REDIS_URL);
@@ -66,7 +66,7 @@ async function receive(workspaceId) {
 async function main() {
   await cleanup();
 
-  console.log("\n🔧 Agent Bridge Integration Tests\n");
+  console.log("\n🔧 SwarmCode Integration Tests\n");
 
   // --- Register ---
   console.log("Register:");

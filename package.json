@@ -1,12 +1,11 @@
 {
-  "name": "mcp-agent-bridge",
-  "version": "1.4.7",
-  "description": "Real-time communication between Claude Code instances across machines and workspaces. Redis-backed channels with background task notifications for true push in VS Code.",
+  "name": "swarmcode",
+  "version": "1.0.0",
+  "description": "SwarmCode — real-time networking between Claude Code instances. Your AI agents talk to each other across machines, workspaces, and conversations.",
   "type": "module",
   "main": "src/channel.js",
   "bin": {
-    "mcp-agent-bridge": "./src/server.js",
-    "agent-bridge": "./src/server.js"
+    "swarmcode": "./src/server.js"
   },
   "scripts": {
     "test": "node test/integration.js",
@@ -14,31 +13,31 @@
     "listen": "node src/listener.js"
   },
   "keywords": [
+    "swarm",
+    "swarmcode",
     "mcp",
     "model-context-protocol",
     "claude",
     "claude-code",
     "agent",
-    "bridge",
-    "cross-machine",
+    "multi-agent",
     "distributed",
     "redis",
     "real-time",
     "workspace",
-    "multi-agent",
     "collaboration",
-    "channels",
+    "networking",
     "pub-sub"
   ],
   "author": "Pranab Sarkar",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/spranab/agent-bridge.git"
+    "url": "git+https://github.com/spranab/swarmcode.git"
   },
-  "homepage": "https://github.com/spranab/agent-bridge#readme",
+  "homepage": "https://spranab.github.io/swarmcode/",
   "bugs": {
-    "url": "https://github.com/spranab/agent-bridge/issues"
+    "url": "https://github.com/spranab/swarmcode/issues"
   },
   "engines": {
     "node": ">=18.0.0"
