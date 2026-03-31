@@ -1,8 +1,0 @@
-node_modules/
-test/
-.git/
-.github/
-.claude/
-k8s/
-*.md
-LICENSE

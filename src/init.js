@@ -4,11 +4,11 @@
  * Initialize a workspace for Agent Bridge.
  *
  * Usage:
- *   npx mcp-agent-bridge init <workspace-id> [--url <bridge-url>]
+ *   npx mcp-agent-bridge init <workspace-id> [--redis <redis-url>]
  *
  * Examples:
  *   npx mcp-agent-bridge init desktop-api
- *   npx mcp-agent-bridge init laptop-frontend --url https://agent-bridge.mcp.mycluster.cyou
+ *   npx mcp-agent-bridge init laptop-frontend --redis redis://redis.mcp.mycluster.cyou:30379
  */
 
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from "fs";
@@ -18,20 +18,21 @@ import { fileURLToPath } from "url";
 const args = process.argv.slice(2);
 
 if (args[0] !== "init" || !args[1]) {
-  console.log("Usage: mcp-agent-bridge init <workspace-id> [--url <bridge-url>]");
+  console.log("Usage: mcp-agent-bridge init <workspace-id> [--redis <redis-url>]");
   console.log("");
   console.log("Examples:");
   console.log("  npx mcp-agent-bridge init desktop-api");
-  console.log("  npx mcp-agent-bridge init laptop-frontend --url https://agent-bridge.mcp.mycluster.cyou");
+  console.log("  npx mcp-agent-bridge init laptop-frontend --redis redis://your-host:6379");
   process.exit(1);
 }
 
 const workspaceId = args[1];
-const urlIdx = args.indexOf("--url");
-const bridgeUrl = urlIdx !== -1 ? args[urlIdx + 1] : "http://localhost:4100";
+const redisIdx = args.indexOf("--redis");
+const redisUrl = redisIdx !== -1 ? args[redisIdx + 1] : "redis://localhost:6379";
 const cwd = process.cwd();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const channelScript = resolve(__dirname, "channel.js");
 const hookScript = resolve(__dirname, "check-inbox-http.js");
 
 // 1. Create/update .mcp.json (merges — preserves other MCP servers)
@@ -43,25 +44,19 @@ if (existsSync(mcpPath)) {
   } catch {}
 }
 mcpConfig.mcpServers = mcpConfig.mcpServers || {};
-mcpConfig.mcpServers["agent-bridge"] = {
-  type: "sse",
-  url: `${bridgeUrl}/sse`,
-  headers: { "x-workspace-id": workspaceId },
-};
-// Channel server for real-time push (reads workspace_id from .mcp.json)
-const channelScript = resolve(__dirname, "channel.js");
+// Remove old SSE server if present
+delete mcpConfig.mcpServers["agent-bridge"];
+// Channel server — direct Redis, real-time push
 mcpConfig.mcpServers["agent-bridge-channel"] = {
   command: "node",
   args: [channelScript],
   env: {
-    AGENT_BRIDGE_REDIS_URL: process.env.AGENT_BRIDGE_REDIS_URL || "redis://localhost:6379",
+    AGENT_BRIDGE_REDIS_URL: redisUrl,
     AGENT_BRIDGE_WORKSPACE_ID: workspaceId,
   },
 };
 writeFileSync(mcpPath, JSON.stringify(mcpConfig, null, 2) + "\n");
-console.log(`✓ .mcp.json — workspace_id: "${workspaceId}", url: ${bridgeUrl}/sse`);
-console.log(`✓ .mcp.json — agent-bridge-channel configured (real-time push via Redis)`);
-
+console.log(`✓ .mcp.json — workspace_id: "${workspaceId}", redis: ${redisUrl}`);
 
 // 2. Create/update .claude/settings.json (merges — preserves existing hooks and settings)
 const claudeDir = resolve(cwd, ".claude");
@@ -78,46 +73,49 @@ if (existsSync(settingsPath)) {
 }
 
 const escapedScript = hookScript.replace(/\\/g, "\\\\");
-const promptHookEntry = {
+const hookEntry = {
   matcher: "",
   hooks: [{ type: "command", command: `node ${escapedScript}`, timeout: 5000 }],
 };
-const stopHookEntry = {
-  matcher: "",
-  hooks: [{ type: "command", command: `AGENT_BRIDGE_HOOK_MODE=stop node ${escapedScript}`, timeout: 5000 }],
-};
 
 settings.hooks = settings.hooks || {};
-for (const event of ["UserPromptSubmit", "Stop"]) {
+for (const event of ["UserPromptSubmit"]) {
   settings.hooks[event] = settings.hooks[event] || [];
   settings.hooks[event] = settings.hooks[event].filter(
     (h) => !h.hooks?.some((hook) => hook.command?.includes("check-inbox"))
   );
-  settings.hooks[event].push(event === "Stop" ? stopHookEntry : promptHookEntry);
+  settings.hooks[event].push(hookEntry);
+}
+// Remove old Stop hook (not useful in VS Code)
+if (settings.hooks.Stop) {
+  settings.hooks.Stop = settings.hooks.Stop.filter(
+    (h) => !h.hooks?.some((hook) => hook.command?.includes("check-inbox"))
+  );
+  if (settings.hooks.Stop.length === 0) delete settings.hooks.Stop;
 }
 
 writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-console.log(`✓ .claude/settings.json — hooks: UserPromptSubmit + Stop`);
+console.log(`✓ .claude/settings.json — hook: UserPromptSubmit`);
 
-// 3. Register with the bridge
+// 3. Register with Redis directly
 try {
-  const regRes = await fetch(`${bridgeUrl}/api/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      workspace_id: workspaceId,
-      description: `Workspace ${workspaceId}`,
-      machine: (await import("os")).hostname(),
-    }),
-  });
-  if (regRes.ok) {
-    const data = await regRes.json();
-    console.log(`✓ Registered with bridge — ${data.active_workspaces?.length || 0} other workspace(s) online`);
-  } else {
-    console.log(`⚠ Could not register (bridge may be offline) — will auto-register when Claude connects`);
-  }
+  const { default: Redis } = await import("ioredis");
+  const redis = new Redis(redisUrl, { keyPrefix: "agent-bridge:" });
+  const workspace = {
+    id: workspaceId,
+    description: `Workspace ${workspaceId}`,
+    machine: (await import("os")).hostname(),
+    registered_at: new Date().toISOString(),
+    last_active: new Date().toISOString(),
+  };
+  await redis.hset("workspaces", workspaceId, JSON.stringify(workspace));
+
+  const allWs = await redis.hgetall("workspaces");
+  const others = Object.keys(allWs).filter((k) => k !== workspaceId);
+  console.log(`✓ Registered — ${others.length} other workspace(s) online${others.length ? ": " + others.join(", ") : ""}`);
+  await redis.quit();
 } catch {
-  console.log(`⚠ Could not reach bridge at ${bridgeUrl} — will auto-register when Claude connects`);
+  console.log(`⚠ Could not reach Redis at ${redisUrl} — will auto-register when Claude connects`);
 }
 
 console.log("");

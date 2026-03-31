@@ -1,27 +1,26 @@
 # Agent Bridge
 
-MCP server for real-time cross-machine communication between Claude Code instances.
+Real-time communication between Claude Code instances across machines and workspaces.
 
 ## Architecture
-- `src/server.js` - Entry point, supports stdio and SSE (`--sse`) transport
-- `src/redis.js` - Redis connection management with key prefixing
-- `src/tools.js` - All MCP tool definitions and handlers
+- `src/channel.js` - MCP server with bridge_send/receive/status/register tools + Redis pub/sub
+- `src/listener.js` - One-shot Redis listener for background task notifications
+- `src/check-inbox-http.js` - Hook script for inbox check on each prompt
+- `src/init.js` - CLI to initialize any workspace in one command
+- `src/server.js` - CLI entry point (routes to init/channel/listen)
 
-## Key Design Decisions
-- Redis for cross-machine communication (not file-based)
-- Dual transport: stdio for single-machine, SSE for cross-machine
+## Key Design
+- Redis pub/sub for real-time cross-machine messaging
+- Per-workspace channels: `agent-bridge:ws:<workspace-id>`
+- Broadcast channel: `agent-bridge:ws:broadcast`
+- Background task pattern: listener exits on message → task-notification → auto-process
 - Messages stored in per-workspace inbox lists with 24h TTL
-- Workspace registrations expire after 2h of inactivity
-- Pub/sub channel `agent-bridge:messages` for real-time notifications
-- All Redis keys prefixed with `agent-bridge:` (configurable)
 
 ## Running
 ```bash
-npm run start        # stdio mode
-npm run start:sse    # SSE mode on port 4100
+npx mcp-agent-bridge init <workspace-id> --redis redis://host:port
 ```
 
 ## Environment
 - `AGENT_BRIDGE_REDIS_URL` - Redis URL (default: redis://localhost:6379)
-- `AGENT_BRIDGE_PORT` - SSE port (default: 4100)
-- `AGENT_BRIDGE_PREFIX` - Redis key prefix (default: agent-bridge:)
+- `AGENT_BRIDGE_WORKSPACE_ID` - Workspace identifier

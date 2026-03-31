@@ -1,18 +1,18 @@
 {
   "name": "mcp-agent-bridge",
-  "version": "1.2.0",
-  "description": "MCP server for real-time cross-machine communication between Claude Code instances. Redis-backed message passing, artifact sharing, and workspace coordination.",
+  "version": "1.3.0",
+  "description": "Real-time communication between Claude Code instances across machines and workspaces. Redis-backed channels with background task notifications for true push in VS Code.",
   "type": "module",
-  "main": "src/server.js",
+  "main": "src/channel.js",
   "bin": {
     "mcp-agent-bridge": "./src/server.js",
     "agent-bridge": "./src/server.js",
     "agent-bridge-channel": "./src/channel.js"
   },
   "scripts": {
-    "start": "node src/server.js",
-    "start:sse": "node src/server.js --sse",
-    "test": "node test/integration.js"
+    "test": "node test/integration.js",
+    "channel": "node src/channel.js",
+    "listen": "node src/listener.js"
   },
   "keywords": [
     "mcp",
@@ -28,7 +28,8 @@
     "workspace",
     "multi-agent",
     "collaboration",
-    "sse"
+    "channels",
+    "pub-sub"
   ],
   "author": "Pranab Sarkar",
   "license": "MIT",
@@ -44,15 +45,16 @@
     "node": ">=18.0.0"
   },
   "files": [
-    "src/",
+    "src/channel.js",
+    "src/listener.js",
+    "src/check-inbox-http.js",
+    "src/init.js",
+    "src/server.js",
     "README.md",
-    "CLAUDE.md",
-    "CLAUDE_SNIPPET.md",
     "LICENSE"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "express": "^5.2.1",
     "ioredis": "^5.10.1",
     "uuid": "^13.0.0"
   }

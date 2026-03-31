@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 
 /**
- * Integration test: simulates two workspaces communicating via Agent Bridge.
- * Requires the server to NOT be running (this test uses stdio mode directly).
+ * Integration test for Agent Bridge.
+ * Tests Redis-level message passing between simulated workspaces.
  */
 
 import Redis from "ioredis";
-import { connect, disconnect } from "../src/redis.js";
-import { toolDefinitions, handleTool } from "../src/tools.js";
 
 const REDIS_URL = process.env.AGENT_BRIDGE_REDIS_URL || "redis://localhost:6379";
 const PREFIX = "agent-bridge:";
+const WS_CHANNEL_PREFIX = "agent-bridge:ws:";
+
+const redis = new Redis(REDIS_URL, { keyPrefix: PREFIX });
+const rawRedis = new Redis(REDIS_URL);
 
 async function cleanup() {
-  const raw = new Redis(REDIS_URL);
-  const keys = await raw.keys(`${PREFIX}*`);
-  if (keys.length) await raw.del(...keys);
-  await raw.quit();
+  const keys = await rawRedis.keys(`${PREFIX}*`);
+  if (keys.length) await rawRedis.del(...keys);
 }
 
 async function test(name, fn) {
@@ -34,13 +34,36 @@ function assert(condition, msg) {
   if (!condition) throw new Error(msg);
 }
 
-function parse(result) {
-  return JSON.parse(result.content[0].text);
+async function register(id, description) {
+  const ws = { id, description, machine: "test", registered_at: new Date().toISOString(), last_active: new Date().toISOString() };
+  await redis.hset("workspaces", id, JSON.stringify(ws));
+}
+
+async function send(from, to, content, type = "info", priority = "normal") {
+  const msg = { id: `msg-${Date.now()}-${Math.random()}`, from, to, type, content, metadata: {}, priority, timestamp: new Date().toISOString(), read: false };
+  if (to === "*") {
+    const workspaces = await redis.hgetall("workspaces");
+    for (const wsId of Object.keys(workspaces)) {
+      if (wsId !== from) {
+        await redis.lpush(`inbox:${wsId}`, JSON.stringify(msg));
+      }
+    }
+    await rawRedis.publish(`${WS_CHANNEL_PREFIX}broadcast`, JSON.stringify(msg));
+  } else {
+    await redis.lpush(`inbox:${to}`, JSON.stringify(msg));
+    await rawRedis.publish(`${WS_CHANNEL_PREFIX}${to}`, JSON.stringify(msg));
+  }
+  return msg;
+}
+
+async function receive(workspaceId) {
+  const raw = await redis.lrange(`inbox:${workspaceId}`, 0, -1);
+  const messages = raw.map((m) => JSON.parse(m)).reverse();
+  await redis.del(`inbox:${workspaceId}`);
+  return messages;
 }
 
 async function main() {
-  await connect();
-  // No global subscriber — per-workspace channels handled by server.js
   await cleanup();
 
   console.log("\n🔧 Agent Bridge Integration Tests\n");
@@ -49,35 +72,25 @@ async function main() {
   console.log("Register:");
 
   await test("workspace A registers", async () => {
-    const res = parse(
-      await handleTool("register", {
-        workspace_id: "desktop-api",
-        description: "Building REST API",
-        machine: "desktop",
-      })
-    );
-    assert(res.status === "registered", "should be registered");
-    assert(res.workspace.id === "desktop-api", "id should match");
+    await register("desktop-api", "Building REST API");
+    const raw = await redis.hget("workspaces", "desktop-api");
+    const ws = JSON.parse(raw);
+    assert(ws.id === "desktop-api", "id should match");
   });
 
   await test("workspace B registers", async () => {
-    const res = parse(
-      await handleTool("register", {
-        workspace_id: "laptop-frontend",
-        description: "Building React frontend",
-        machine: "laptop",
-      })
-    );
-    assert(res.status === "registered", "should be registered");
+    await register("laptop-frontend", "Building React frontend");
+    const raw = await redis.hget("workspaces", "laptop-frontend");
+    assert(raw, "should be registered");
   });
 
   // --- Status ---
   console.log("\nStatus:");
 
   await test("shows both workspaces", async () => {
-    const res = parse(await handleTool("status", {}));
-    assert(res.workspace_count === 2, `expected 2 workspaces, got ${res.workspace_count}`);
-    const ids = res.workspaces.map((w) => w.id).sort();
+    const raw = await redis.hgetall("workspaces");
+    const ids = Object.keys(raw).sort();
+    assert(ids.length === 2, `expected 2 workspaces, got ${ids.length}`);
     assert(ids[0] === "desktop-api", "should have desktop-api");
     assert(ids[1] === "laptop-frontend", "should have laptop-frontend");
   });
@@ -86,152 +99,91 @@ async function main() {
   console.log("\nMessaging:");
 
   await test("A sends message to B", async () => {
-    const res = parse(
-      await handleTool("send", {
-        from: "desktop-api",
-        to: "laptop-frontend",
-        type: "info",
-        content: "User API is ready at /api/users",
-        priority: "high",
-      })
-    );
-    assert(res.status === "sent", "should be sent");
-    assert(res.to === "laptop-frontend", "target should match");
+    const msg = await send("desktop-api", "laptop-frontend", "User API is ready at /api/users", "info", "high");
+    assert(msg.id, "should have message id");
   });
 
   await test("A sends another message to B", async () => {
-    const res = parse(
-      await handleTool("send", {
-        from: "desktop-api",
-        to: "laptop-frontend",
-        type: "decision",
-        content: "Using JWT for auth tokens",
-      })
-    );
-    assert(res.status === "sent", "should be sent");
+    await send("desktop-api", "laptop-frontend", "Using JWT for auth tokens", "decision");
   });
 
   await test("B receives both messages", async () => {
-    const res = parse(
-      await handleTool("receive", { workspace_id: "laptop-frontend" })
-    );
-    assert(res.message_count === 2, `expected 2 messages, got ${res.message_count}`);
-    assert(res.messages[0].content.includes("User API"), "first message content");
-    assert(res.messages[1].content.includes("JWT"), "second message content");
-    assert(res.messages[0].priority === "high", "priority should be high");
+    const msgs = await receive("laptop-frontend");
+    assert(msgs.length === 2, `expected 2 messages, got ${msgs.length}`);
+    assert(msgs[0].content.includes("User API"), "first message content");
+    assert(msgs[1].content.includes("JWT"), "second message content");
   });
 
   await test("B has no more messages after reading", async () => {
-    const res = parse(
-      await handleTool("receive", { workspace_id: "laptop-frontend" })
-    );
-    assert(res.message_count === 0, `expected 0 messages, got ${res.message_count}`);
+    const msgs = await receive("laptop-frontend");
+    assert(msgs.length === 0, `expected 0 messages, got ${msgs.length}`);
   });
 
   await test("A has no messages (was the sender)", async () => {
-    const res = parse(
-      await handleTool("receive", { workspace_id: "desktop-api" })
-    );
-    assert(res.message_count === 0, `expected 0 messages, got ${res.message_count}`);
+    const msgs = await receive("desktop-api");
+    assert(msgs.length === 0, `expected 0 messages, got ${msgs.length}`);
   });
 
   // --- Broadcast ---
   console.log("\nBroadcast:");
 
   await test("B broadcasts to all", async () => {
-    const res = parse(
-      await handleTool("send", {
-        from: "laptop-frontend",
-        to: "*",
-        type: "question",
-        content: "Does anyone have the DB schema?",
-      })
-    );
-    assert(res.status === "sent", "broadcast should be sent");
+    await send("laptop-frontend", "*", "Does anyone have the DB schema?", "question");
   });
 
   await test("A receives broadcast", async () => {
-    const res = parse(
-      await handleTool("receive", { workspace_id: "desktop-api" })
-    );
-    assert(res.message_count === 1, `expected 1, got ${res.message_count}`);
-    assert(res.messages[0].content.includes("DB schema"), "broadcast content");
-    assert(res.messages[0].from === "laptop-frontend", "from should be B");
+    const msgs = await receive("desktop-api");
+    assert(msgs.length === 1, `expected 1, got ${msgs.length}`);
+    assert(msgs[0].content.includes("DB schema"), "broadcast content");
+    assert(msgs[0].from === "laptop-frontend", "from should be B");
   });
 
   await test("B does NOT receive own broadcast", async () => {
-    const res = parse(
-      await handleTool("receive", { workspace_id: "laptop-frontend" })
-    );
-    assert(res.message_count === 0, `expected 0, got ${res.message_count}`);
+    const msgs = await receive("laptop-frontend");
+    assert(msgs.length === 0, `expected 0, got ${msgs.length}`);
   });
 
-  // --- Artifacts ---
-  console.log("\nArtifacts:");
+  // --- Pub/Sub ---
+  console.log("\nPub/Sub channels:");
 
-  await test("A shares an artifact", async () => {
-    const res = parse(
-      await handleTool("share_artifact", {
-        from: "desktop-api",
-        name: "user-schema",
-        type: "schema",
-        content: JSON.stringify({ id: "uuid", email: "string", name: "string" }),
-        description: "User table schema for the REST API",
-      })
-    );
-    assert(res.status === "shared", "should be shared");
+  await test("direct message publishes to workspace channel", async () => {
+    let received = null;
+    const sub = new Redis(REDIS_URL);
+    await sub.subscribe(`${WS_CHANNEL_PREFIX}laptop-frontend`);
+    const promise = new Promise((resolve) => {
+      sub.on("message", (ch, raw) => {
+        received = JSON.parse(raw);
+        resolve();
+      });
+    });
+    await send("desktop-api", "laptop-frontend", "Channel test");
+    await Promise.race([promise, new Promise((r) => setTimeout(r, 2000))]);
+    await sub.quit();
+    assert(received, "should receive on workspace channel");
+    assert(received.content === "Channel test", "content should match");
   });
 
-  await test("B gets notified about the artifact", async () => {
-    const res = parse(
-      await handleTool("receive", { workspace_id: "laptop-frontend" })
-    );
-    assert(res.message_count === 1, `expected 1 notification, got ${res.message_count}`);
-    assert(res.messages[0].type === "artifact", "should be artifact notification");
-    assert(res.messages[0].metadata.artifact_name === "user-schema", "artifact name in metadata");
-  });
-
-  await test("B retrieves the artifact", async () => {
-    const res = JSON.parse(
-      (await handleTool("get_artifact", { name: "user-schema" })).content[0].text
-    );
-    assert(res.name === "user-schema", "name should match");
-    assert(res.type === "schema", "type should match");
-    const content = JSON.parse(res.content);
-    assert(content.email === "string", "content should have email field");
-  });
-
-  await test("list artifacts shows the shared one", async () => {
-    const res = parse(await handleTool("list_artifacts", {}));
-    assert(res.count === 1, `expected 1 artifact, got ${res.count}`);
-    assert(res.artifacts[0].name === "user-schema", "name should match");
-  });
-
-  // --- Update Status ---
-  console.log("\nUpdate Status:");
-
-  await test("A updates its status", async () => {
-    const res = parse(
-      await handleTool("update_status", {
-        workspace_id: "desktop-api",
-        description: "Now working on auth middleware",
-        progress: "60% complete",
-      })
-    );
-    assert(res.status === "updated", "should be updated");
-    assert(res.workspace.progress === "60% complete", "progress should match");
-  });
-
-  await test("status reflects the update", async () => {
-    const res = parse(await handleTool("status", {}));
-    const api = res.workspaces.find((w) => w.id === "desktop-api");
-    assert(api.description === "Now working on auth middleware", "description updated");
-    assert(api.progress === "60% complete", "progress updated");
+  await test("broadcast publishes to broadcast channel", async () => {
+    let received = null;
+    const sub = new Redis(REDIS_URL);
+    await sub.subscribe(`${WS_CHANNEL_PREFIX}broadcast`);
+    const promise = new Promise((resolve) => {
+      sub.on("message", (ch, raw) => {
+        received = JSON.parse(raw);
+        resolve();
+      });
+    });
+    await send("desktop-api", "*", "Broadcast channel test");
+    await Promise.race([promise, new Promise((r) => setTimeout(r, 2000))]);
+    await sub.quit();
+    assert(received, "should receive on broadcast channel");
+    assert(received.content === "Broadcast channel test", "content should match");
   });
 
   // --- Cleanup ---
   await cleanup();
-  await disconnect();
+  await redis.quit();
+  await rawRedis.quit();
 
   console.log("\n" + (process.exitCode ? "❌ Some tests failed" : "✅ All tests passed") + "\n");
 }

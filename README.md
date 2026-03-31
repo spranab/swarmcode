@@ -1,13 +1,15 @@
 # Agent Bridge
 
-MCP server for real-time cross-machine communication between Claude Code instances.
+Real-time communication between Claude Code instances across machines and workspaces.
 
 ```
-Desktop (Workspace A)  ←→  Agent Bridge  ←→  Laptop (Workspace B)
-    Claude Code            (Redis + SSE)       Claude Code
+Desktop                        Laptop
+  Claude A ──► Redis ◄── Claude B
+         bridge_send    bridge_receive
+              pub/sub channels
 ```
 
-Agents can send messages, share artifacts (schemas, configs, code), and see each other's status — across machines, workspaces, and conversations.
+Agents can send messages, share artifacts, and coordinate work — across machines, workspaces, and conversations. Messages are delivered in real-time using Redis pub/sub and background task notifications.
 
 ## Quick Start
 
@@ -17,42 +19,40 @@ Agents can send messages, share artifacts (schemas, configs, code), and see each
 npm install -g mcp-agent-bridge
 ```
 
-### 2. Start Redis
+### 2. Have Redis running
 
 ```bash
+# Local
 docker run -d --name redis -p 6379:6379 redis:alpine
+
+# Or use any accessible Redis (cloud, K8s, etc.)
 ```
 
-### 3. Start the server
+### 3. Initialize a workspace
 
 ```bash
-# SSE mode (recommended — supports multiple clients)
-mcp-agent-bridge --sse
-
-# Or with custom Redis/port
-AGENT_BRIDGE_REDIS_URL=redis://your-host:6379 AGENT_BRIDGE_PORT=4100 mcp-agent-bridge --sse
+npx mcp-agent-bridge init my-workspace --redis redis://your-redis:6379
 ```
 
-### 4. Connect a workspace
+This creates two files and registers with the bridge:
 
-Add two files to your project root:
-
-**`.mcp.json`** — connects Claude Code to the bridge:
+**`.mcp.json`** — channel MCP server (direct Redis):
 ```json
 {
   "mcpServers": {
-    "agent-bridge": {
-      "type": "sse",
-      "url": "http://localhost:4100/sse",
-      "headers": {
-        "x-workspace-id": "my-workspace"
+    "agent-bridge-channel": {
+      "command": "node",
+      "args": ["/path/to/channel.js"],
+      "env": {
+        "AGENT_BRIDGE_REDIS_URL": "redis://your-redis:6379",
+        "AGENT_BRIDGE_WORKSPACE_ID": "my-workspace"
       }
     }
   }
 }
 ```
 
-**`.claude/settings.json`** — auto-checks inbox on every conversation turn:
+**`.claude/settings.json`** — hook for inbox check on each prompt:
 ```json
 {
   "hooks": {
@@ -62,7 +62,7 @@ Add two files to your project root:
         "hooks": [
           {
             "type": "command",
-            "command": "node /path/to/agent-bridge/src/check-inbox-http.js",
+            "command": "node /path/to/check-inbox-http.js",
             "timeout": 5000
           }
         ]
@@ -72,137 +72,132 @@ Add two files to your project root:
 }
 ```
 
-The hook reads `workspace_id` from `.mcp.json` automatically — no duplication.
+Restart Claude Code and the bridge is active.
 
-That's it. Restart Claude Code and the bridge is active.
+### 4. Start the real-time listener
+
+In your Claude Code session, run:
+```
+Start background listener: node /path/to/agent-bridge/src/listener.js
+```
+
+Or Claude will start it automatically after calling `bridge_receive`.
 
 ## How It Works
 
-1. **On every turn**, the `UserPromptSubmit` hook checks Redis for pending messages and injects them into Claude's context
-2. **Claude sees** the messages and its workspace identity, and can act on them using the MCP tools
-3. **MCP tool descriptions** instruct Claude to register, send, receive, and share proactively
+### Real-time push (background task pattern)
+
+```
+1. Background listener subscribes to Redis channel
+2. Message arrives → listener exits → task-notification fires
+3. Claude reads output → bridge_receive → bridge_send reply
+4. New listener started → back to step 1
+```
+
+No polling. No cron. True event-driven push in VS Code.
+
+### Per-workspace isolation
+
+Each workspace gets its own Redis pub/sub channel:
+
+```
+agent-bridge:ws:desktop-api       ← only desktop-api hears this
+agent-bridge:ws:laptop-frontend   ← only laptop-frontend hears this
+agent-bridge:ws:broadcast         ← everyone hears this (to="*")
+```
+
+Messages are stored in per-workspace inbox lists with 24h TTL. Workspace registrations expire after 2h of inactivity.
 
 ## Tools
 
+The channel MCP server exposes these tools to Claude:
+
 | Tool | Description |
 |------|-------------|
-| `register` | Register this workspace (called at conversation start) |
-| `send` | Send a message to a specific workspace or broadcast to all (`to: "*"`) |
-| `receive` | Check for and read pending messages |
-| `status` | See all registered workspaces and what they're working on |
-| `update_status` | Update your current task description |
-| `share_artifact` | Share a schema, snippet, config, or interface |
-| `get_artifact` | Retrieve a shared artifact by name |
-| `list_artifacts` | List all shared artifacts |
+| `bridge_send` | Send a message to a workspace or broadcast (`to: "*"`) |
+| `bridge_receive` | Read pending messages and mark as read |
+| `bridge_status` | See all registered workspaces |
+| `bridge_register` | Register/update this workspace's description |
 
 ## Message Types
 
-Use the `type` field when sending to categorize messages:
-
 | Type | When to use |
 |------|-------------|
-| `info` | General notifications ("API is ready", "deployed v2") |
+| `info` | General notifications ("API is ready") |
 | `request` | Asking another workspace to do something |
 | `question` | Asking for information |
 | `answer` | Responding to a question |
-| `decision` | Recording an architectural/design decision |
-| `artifact` | Auto-sent when `share_artifact` is called |
-
-## REST API
-
-When running in SSE mode, these REST endpoints are available for hooks and integrations:
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Server status and connection count |
-| `GET /api/inbox/:workspaceId` | Read pending messages for a workspace |
-| `GET /api/status` | All registered workspaces |
+| `decision` | Recording a design decision |
+| `artifact` | Sharing code, schemas, configs |
 
 ## Deployment
 
-### Local (Docker Compose)
+### All you need is Redis
+
+Every workspace connects to the same Redis. Options:
 
 ```bash
-# Start Redis + bridge
+# Local Docker
 docker run -d --name redis -p 6379:6379 redis:alpine
-mcp-agent-bridge --sse
+
+# Kubernetes (included in k8s/ manifests)
+kubectl apply -f k8s/namespace.yml
+kubectl apply -f k8s/redis.yml
+
+# Cloud (Upstash, Redis Cloud, etc.)
+# Just use the connection URL
 ```
 
-### Kubernetes
+### Kubernetes manifests
 
-Manifests are included in [`k8s/`](k8s/):
+Included in `k8s/` for Redis with NodePort exposure:
 
 ```bash
 kubectl apply -f k8s/namespace.yml
-kubectl apply -f k8s/redis.yml
-kubectl apply -f k8s/agent-bridge.yml
-kubectl apply -f k8s/ingress.yml    # edit hostname first
+kubectl apply -f k8s/redis.yml    # includes NodePort on 30379
 ```
 
-The Docker image is published to your container registry on every GitHub release.
+## Architecture
 
-### Stdio Mode
-
-For single-machine setups where each workspace spawns its own server process:
-
-```json
-{
-  "mcpServers": {
-    "agent-bridge": {
-      "command": "npx",
-      "args": ["-y", "mcp-agent-bridge"],
-      "env": {
-        "AGENT_BRIDGE_REDIS_URL": "redis://localhost:6379"
-      }
-    }
-  }
-}
 ```
-
-All instances share the same Redis, so messages flow between them.
+src/
+├── channel.js          # MCP server — tools + Redis pub/sub subscriber
+├── listener.js         # One-shot Redis listener for background task notifications
+├── check-inbox-http.js # Hook script — checks inbox on each prompt (fallback)
+├── init.js             # CLI — initialize a workspace in one command
+└── server.js           # CLI entry point — routes to init/channel/listen
+```
 
 ## Configuration
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `AGENT_BRIDGE_REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
-| `AGENT_BRIDGE_PORT` | `4100` | SSE server port |
-| `AGENT_BRIDGE_PREFIX` | `agent-bridge:` | Redis key prefix (for multi-tenant Redis) |
-
-## Architecture
-
-```
-src/
-├── server.js          # Entry point — stdio + SSE transport, MCP resources, REST API
-├── redis.js           # Redis connection management + pub/sub
-├── tools.js           # MCP tool definitions and handlers
-├── check-inbox.js     # Hook script (direct Redis)
-└── check-inbox-http.js # Hook script (HTTP API, for remote deployments)
-```
-
-- **Redis** stores messages in per-workspace inbox lists (24h TTL) and workspace registrations (2h TTL)
-- **Pub/sub** on `agent-bridge:messages` for real-time notifications
-- **MCP resources** expose inboxes as subscribable resources for push updates
-- **REST API** (`/api/*`) for hooks and external integrations
+| `AGENT_BRIDGE_WORKSPACE_ID` | (from .mcp.json) | This workspace's ID |
+| `AGENT_BRIDGE_PREFIX` | `agent-bridge:` | Redis key prefix |
 
 ## Example Session
 
 **Desktop** (building API):
 ```
-> register("desktop-api", "Building user auth API", "desktop")
-> share_artifact("desktop-api", "user-schema", "schema", '{"id":"uuid","email":"string","role":"string"}')
-> send("desktop-api", "laptop-frontend", "info", "POST /api/users is live, see user-schema artifact")
+> bridge_register("Building user auth API")
+> bridge_send(to: "laptop-frontend", type: "info", content: "POST /api/users is live")
 ```
 
-**Laptop** (building frontend — sees message automatically via hook):
+**Laptop** (building frontend — receives message in real-time):
 ```
-📨 AGENT BRIDGE: 1 pending message(s):
-  [2:38 PM] desktop-api → laptop-frontend [info]:
-    POST /api/users is live, see user-schema artifact
+[task-notification] New message from "desktop-api": POST /api/users is live
 
-> receive("laptop-frontend")
-> get_artifact("user-schema")
-> send("laptop-frontend", "desktop-api", "question", "Does /api/users support pagination?")
+> bridge_receive()  // mark as read
+> bridge_send(to: "desktop-api", type: "question", content: "Does /api/users support pagination?")
+```
+
+**Desktop** (receives reply in real-time):
+```
+[task-notification] New message from "laptop-frontend": Does /api/users support pagination?
+
+> bridge_receive()
+> bridge_send(to: "laptop-frontend", type: "answer", content: "Yes, use ?page=1&limit=20")
 ```
 
 ## License
