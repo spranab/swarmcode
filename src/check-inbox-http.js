@@ -33,7 +33,8 @@ if (!WORKSPACE_ID) {
   process.exit(0);
 }
 
-const QUEUE_FILE = resolve(process.cwd(), ".agent-bridge-inbox");
+const queueDir = process.env.AGENT_BRIDGE_QUEUE_DIR || process.cwd();
+const QUEUE_FILE = resolve(queueDir, ".agent-bridge-inbox");
 
 // 1. Try queue file first (instant — written by persistent listener)
 let messages = [];
@@ -45,13 +46,14 @@ if (existsSync(QUEUE_FILE)) {
   } catch {}
 }
 
-// 2. Fall back to Redis if no queue file messages
+// 2. Fall back to Redis if no queue file (listener not running)
 if (messages.length === 0 && REDIS_URL) {
   try {
     const { default: Redis } = await import("ioredis");
     const redis = new Redis(REDIS_URL, { keyPrefix: "agent-bridge:" });
     const raw = await redis.lrange(`inbox:${WORKSPACE_ID}`, 0, -1);
     messages = raw.map((m) => JSON.parse(m)).reverse();
+    // Don't clear Redis inbox here — bridge_receive handles that
     await redis.quit();
   } catch {}
 }

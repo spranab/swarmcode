@@ -33,7 +33,10 @@ if (!WORKSPACE_ID) {
   process.exit(1);
 }
 
-const QUEUE_FILE = resolve(process.cwd(), ".agent-bridge-inbox");
+// Use AGENT_BRIDGE_QUEUE_DIR env if set, otherwise cwd
+const queueDir = process.env.AGENT_BRIDGE_QUEUE_DIR || process.cwd();
+const QUEUE_FILE = resolve(queueDir, ".agent-bridge-inbox");
+console.error(`Queue file: ${QUEUE_FILE}`);
 
 const sub = new Redis(REDIS_URL);
 
@@ -57,11 +60,17 @@ sub.on("message", async (ch, raw) => {
       } catch {}
     }
     queue.push(msg);
-    writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
+    try {
+      writeFileSync(QUEUE_FILE, JSON.stringify(queue, null, 2));
+    } catch (writeErr) {
+      console.error(`Failed to write queue file: ${writeErr.message}`);
+    }
 
     const prio = msg.priority === "high" || msg.priority === "urgent" ? ` [${msg.priority.toUpperCase()}]` : "";
     console.log(`[${new Date().toISOString()}] ${msg.from}${prio}: ${msg.content.slice(0, 100)}`);
-  } catch {}
+  } catch (err) {
+    console.error(`Message handler error: ${err.message}`);
+  }
 });
 
 // Keep alive — no timeout, runs until killed
