@@ -47,8 +47,8 @@ mcpConfig.mcpServers = mcpConfig.mcpServers || {};
 delete mcpConfig.mcpServers["agent-bridge"];
 // Channel server — direct Redis, real-time push
 mcpConfig.mcpServers["agent-bridge-channel"] = {
-  command: "agent-bridge-channel",
-  args: [],
+  command: "npx",
+  args: ["-y", "mcp-agent-bridge", "channel"],
   env: {
     AGENT_BRIDGE_REDIS_URL: redisUrl,
     AGENT_BRIDGE_WORKSPACE_ID: workspaceId,
@@ -73,7 +73,7 @@ if (existsSync(settingsPath)) {
 
 const hookEntry = {
   matcher: "",
-  hooks: [{ type: "command", command: `AGENT_BRIDGE_REDIS_URL=${redisUrl} AGENT_BRIDGE_WORKSPACE_ID=${workspaceId} agent-bridge listen`, timeout: 10000 }],
+  hooks: [{ type: "command", command: `AGENT_BRIDGE_REDIS_URL=${redisUrl} AGENT_BRIDGE_WORKSPACE_ID=${workspaceId} npx -y mcp-agent-bridge listen`, timeout: 10000 }],
 };
 
 settings.hooks = settings.hooks || {};
