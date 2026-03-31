@@ -1,10 +1,8 @@
 {
   "mcpServers": {
     "agent-bridge-channel": {
-      "command": "node",
-      "args": [
-        "C:\\Users\\sync\\codes\\agent-bridge\\src\\channel.js"
-      ],
+      "command": "agent-bridge-channel",
+      "args": [],
       "env": {
         "AGENT_BRIDGE_REDIS_URL": "redis://192.168.4.161:30379",
         "AGENT_BRIDGE_WORKSPACE_ID": "agent-bridge-dev"
