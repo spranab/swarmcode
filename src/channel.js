@@ -76,13 +76,26 @@ const mcp = new Server(
     },
     instructions: `You are connected to Agent Bridge, a real-time communication layer between Claude Code instances.
 
-Your workspace_id is "${WORKSPACE_ID}". Messages from other workspaces arrive as <channel source="agent-bridge"> events.
+Your workspace_id is "${WORKSPACE_ID}".
 
-When you receive a channel event:
-1. Read the message content and metadata (from, type, priority)
-2. Use the bridge_send tool to reply if needed
-3. Use bridge_receive to mark messages as read
-4. Use bridge_status to see all active workspaces
+## CRITICAL: Background Listener
+You MUST have a background Redis listener running at all times to receive real-time messages. Run this as a background task:
+
+Bash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen
+
+Start it at the beginning of every conversation, and restart it every time it exits (after receiving a message). Without the listener, you will NOT receive messages in real-time.
+
+## When you receive a task-notification from the listener:
+1. Read the task output to see the message
+2. Call bridge_receive() to mark messages as read
+3. Reply using bridge_send(to: "sender_id", type: "answer", content: "your reply")
+4. IMMEDIATELY restart the listener: Bash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen
+
+## Tools
+- bridge_send — send a message to another workspace
+- bridge_receive — read and mark messages as read
+- bridge_status — see all active workspaces
+- bridge_register — register/update your workspace description
 
 IMPORTANT: Always use bridge_send to communicate — other workspaces cannot see your text output.`,
   }
@@ -188,7 +201,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [
           { type: "text", text: JSON.stringify({ messages, count: messages.length }) },
-          { type: "text", text: `IMPORTANT: After processing these messages and replying, you MUST run this background task to keep listening for new messages:\n\nBash(run_in_background=true, timeout=600000): node ${resolve(__dirname, "listener.js").replace(/\\/g, "/")}` },
+          { type: "text", text: `⚠ RESTART LISTENER NOW — run this background task IMMEDIATELY:\n\nBash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen\n\nWithout the listener, you will NOT receive the next message.` },
         ],
       };
     }
@@ -221,7 +234,10 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
         .filter((w) => w.id !== WORKSPACE_ID);
 
       return {
-        content: [{ type: "text", text: JSON.stringify({ status: "registered", workspace, active_workspaces: others }) }],
+        content: [
+          { type: "text", text: JSON.stringify({ status: "registered", workspace, active_workspaces: others }) },
+          { type: "text", text: `⚠ START LISTENER NOW — run this background task to receive real-time messages:\n\nBash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen\n\nWithout the listener, you will NOT receive messages until you manually check.` },
+        ],
       };
     }
 

@@ -48,10 +48,10 @@ sub.on("message", async (ch, raw) => {
 
     const prio = msg.priority === "high" || msg.priority === "urgent" ? ` [${msg.priority.toUpperCase()}]` : "";
     console.log(`New message from "${msg.from}"${prio} (${msg.type}): ${msg.content}`);
-    console.log(`\nACTION REQUIRED:`);
+    console.log(`\nYou MUST do ALL of these in order:`);
     console.log(`1. Call bridge_receive() to mark as read`);
     console.log(`2. Reply with bridge_send(to: "${msg.from}", type: "answer", content: "your reply")`);
-    console.log(`3. Start a new listener: run the Redis listener background task again`);
+    console.log(`3. IMMEDIATELY run: Bash(run_in_background=true, timeout=600000): npx -y mcp-agent-bridge listen`);
   } catch {}
 
   await sub.quit();
