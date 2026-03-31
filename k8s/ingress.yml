@@ -1,0 +1,42 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: agent-bridge-tls
+  namespace: mcp
+spec:
+  secretName: agent-bridge-tls
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-cloudflare-prod
+  dnsNames:
+    - agent-bridge.mcp.mycluster.cyou
+  secretTemplate:
+    labels:
+      app: agent-bridge-dashboard
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agent-bridge-dashboard
+  namespace: mcp
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - agent-bridge.mcp.mycluster.cyou
+      secretName: agent-bridge-tls
+  rules:
+    - host: agent-bridge.mcp.mycluster.cyou
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agent-bridge-dashboard
+                port:
+                  number: 80

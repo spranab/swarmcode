@@ -54,6 +54,7 @@
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "express": "^5.2.1",
     "ioredis": "^5.10.1",
     "uuid": "^13.0.0"
   }

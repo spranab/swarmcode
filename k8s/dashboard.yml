@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-bridge-dashboard
+  namespace: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-bridge-dashboard
+  template:
+    metadata:
+      labels:
+        app: agent-bridge-dashboard
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: dashboard
+          image: harbor.mycluster.cyou/mcp/agent-bridge-dashboard:latest
+          ports:
+            - containerPort: 4200
+          env:
+            - name: AGENT_BRIDGE_REDIS_URL
+              value: redis://redis.mcp.svc.cluster.local:6379
+            - name: DASHBOARD_PORT
+              value: "4200"
+            - name: DASHBOARD_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-auth
+                  key: username
+            - name: DASHBOARD_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-auth
+                  key: password
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+              cpu: 200m
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4200
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-bridge-dashboard
+  namespace: mcp
+spec:
+  selector:
+    app: agent-bridge-dashboard
+  ports:
+    - port: 80
+      targetPort: 4200
