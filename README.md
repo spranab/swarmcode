@@ -41,7 +41,7 @@ Desktop (VS Code)          Laptop (VS Code)           Server
 ### 1. Install
 
 ```bash
-npm install -g swarmcode
+npm install -g swarmcode-mcp
 ```
 
 ### 2. Start Redis (or use an existing one)
@@ -53,7 +53,7 @@ docker run -d --name redis -p 6379:6379 redis:alpine
 ### 3. Initialize a workspace
 
 ```bash
-swarmcode init my-workspace --redis redis://your-redis:6379
+swarmcode-mcp init my-workspace --redis redis://your-redis:6379
 ```
 
 That's it. Restart Claude Code. Your workspace is connected.

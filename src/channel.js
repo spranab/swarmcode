@@ -106,7 +106,7 @@ Your workspace_id is "${WORKSPACE_ID}".
 ## CRITICAL: Do BOTH of these at the start of every conversation:
 
 ### 1. Start the background listener (real-time push):
-  Bash(run_in_background=true, timeout=600000): SWARMCODE_REDIS_URL=${REDIS_URL} SWARMCODE_WORKSPACE_ID=${WORKSPACE_ID} npx -y swarmcode listen
+  Bash(run_in_background=true, timeout=600000): SWARMCODE_REDIS_URL=${REDIS_URL} SWARMCODE_WORKSPACE_ID=${WORKSPACE_ID} npx -y swarmcode-mcp listen
 
 ### 2. Set up a cron to check every 5 minutes (backup polling):
   CronCreate(cron="*/5 * * * *", prompt="Check swarmcode inbox. Call swarm_receive from swarmcode. If there are messages, process them — reply to questions with swarm_send, acknowledge info, act on requests.")

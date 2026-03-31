@@ -41,7 +41,7 @@ delete mcpConfig.mcpServers["agent-bridge-channel"];
 // SwarmCode MCP server
 mcpConfig.mcpServers["swarmcode"] = {
   command: "npx",
-  args: ["-y", "swarmcode", "channel"],
+  args: ["-y", "swarmcode-mcp", "channel"],
   env: {
     SWARMCODE_REDIS_URL: redisUrl,
     SWARMCODE_WORKSPACE_ID: workspaceId,
@@ -66,7 +66,7 @@ if (existsSync(settingsPath)) {
 
 const hookEntry = {
   matcher: "",
-  hooks: [{ type: "command", command: `SWARMCODE_REDIS_URL=${redisUrl} SWARMCODE_WORKSPACE_ID=${workspaceId} npx -y swarmcode check`, timeout: 5000 }],
+  hooks: [{ type: "command", command: `SWARMCODE_REDIS_URL=${redisUrl} SWARMCODE_WORKSPACE_ID=${workspaceId} npx -y swarmcode-mcp check`, timeout: 5000 }],
 };
 
 settings.hooks = settings.hooks || {};

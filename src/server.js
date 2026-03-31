@@ -4,10 +4,10 @@
  * SwarmCode CLI entry point.
  *
  * Usage:
- *   swarmcode init <workspace-id> [--redis <redis-url>]
- *   swarmcode channel   (starts the MCP server — normally spawned by Claude Code)
- *   swarmcode listen    (starts the one-shot Redis listener — background task)
- *   swarmcode check     (quick inbox check — used by hooks)
+ *   swarmcode-mcp init <workspace-id> [--redis <redis-url>]
+ *   swarmcode-mcp channel   (starts the MCP server — normally spawned by Claude Code)
+ *   swarmcode-mcp listen    (starts the one-shot Redis listener — background task)
+ *   swarmcode-mcp check     (quick inbox check — used by hooks)
  */
 
 const cmd = process.argv[2];
@@ -23,11 +23,11 @@ if (cmd === "init") {
 } else {
   console.log("SwarmCode — real-time networking between Claude Code instances\n");
   console.log("Usage:");
-  console.log("  swarmcode init <workspace-id> --redis <redis-url>");
-  console.log("  swarmcode channel    (MCP server — spawned by Claude Code)");
-  console.log("  swarmcode listen     (background Redis listener)");
-  console.log("  swarmcode check      (quick inbox check for hooks)\n");
+  console.log("  swarmcode-mcp init <workspace-id> --redis <redis-url>");
+  console.log("  swarmcode-mcp channel    (MCP server — spawned by Claude Code)");
+  console.log("  swarmcode-mcp listen     (background Redis listener)");
+  console.log("  swarmcode-mcp check      (quick inbox check for hooks)\n");
   console.log("Quick start:");
-  console.log("  npm install -g swarmcode");
-  console.log("  swarmcode init my-workspace --redis redis://your-redis:6379");
+  console.log("  npm install -g swarmcode-mcp");
+  console.log("  swarmcode-mcp init my-workspace --redis redis://your-redis:6379");
 }

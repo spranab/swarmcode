@@ -50,7 +50,7 @@ sub.on("message", async (_ch, raw) => {
     console.log(`\nYou MUST do ALL of these in order:`);
     console.log(`1. Call swarm_receive() to mark as read`);
     console.log(`2. Reply with swarm_send(to: "${msg.from}", type: "answer", content: "your reply")`);
-    console.log(`3. IMMEDIATELY run: Bash(run_in_background=true, timeout=600000): npx -y swarmcode listen`);
+    console.log(`3. IMMEDIATELY run: Bash(run_in_background=true, timeout=600000): npx -y swarmcode-mcp listen`);
   } catch {}
 
   await sub.quit();
@@ -58,7 +58,7 @@ sub.on("message", async (_ch, raw) => {
 });
 
 setTimeout(async () => {
-  console.log("Listener timeout — no messages. Restart with: Bash(run_in_background=true, timeout=600000): npx -y swarmcode listen");
+  console.log("Listener timeout — no messages. Restart with: Bash(run_in_background=true, timeout=600000): npx -y swarmcode-mcp listen");
   await sub.quit();
   process.exit(0);
 }, 10 * 60 * 1000);
