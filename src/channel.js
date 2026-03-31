@@ -163,6 +163,10 @@ mcp.tool(
       await publisher.publish(`${WS_CHANNEL_PREFIX}${args.to}`, JSON.stringify(msg));
     }
 
+    // Store in global log (for dashboard)
+    await redis.lpush("messages:log", JSON.stringify(msg));
+    await redis.ltrim("messages:log", 0, 499);
+
     return { content: [{ type: "text", text: JSON.stringify({ status: "sent", to: args.to, message_id: msg.id }) }] };
   }
 );
