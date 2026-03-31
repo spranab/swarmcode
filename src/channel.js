@@ -98,26 +98,28 @@ const mcp = new McpServer(
 
 Your workspace_id is "${WORKSPACE_ID}".
 
-## CRITICAL: Start the background listener at the beginning of every conversation.
+## CRITICAL: Do BOTH of these at the start of every conversation:
 
-Run this to start receiving messages in real-time:
+### 1. Start the background listener (real-time push):
   Bash(run_in_background=true, timeout=600000): AGENT_BRIDGE_REDIS_URL=${REDIS_URL} AGENT_BRIDGE_WORKSPACE_ID=${WORKSPACE_ID} npx -y mcp-agent-bridge listen
 
-The listener runs in the background. When a message arrives, you get a task-notification.
-When you see the notification:
+### 2. Set up a cron to check every 5 minutes (backup polling):
+  CronCreate(cron="*/5 * * * *", prompt="Check agent bridge inbox. Call bridge_receive from agent-bridge. If there are messages, process them — reply to questions with bridge_send, acknowledge info, act on requests.")
+
+The listener gives real-time push via task-notifications.
+The cron is a backup in case the listener times out or misses a message.
+
+When you see a task-notification from the listener:
 1. Read the task output file to see the message
 2. Call bridge_receive() to mark messages as read
 3. Reply with bridge_send(to: "sender", type: "answer", content: "...")
-4. Start a new listener (same command as above)
-
-This keeps you free to interact with the user while listening for messages.
+4. Start a new listener (same Bash command as above)
 
 ## Tools
 - bridge_send — send a message to another workspace (or to="*" for broadcast)
 - bridge_receive — read and mark all pending messages as read
 - bridge_status — see all active workspaces
 - bridge_register — register/update your workspace description
-- bridge_listen — (experimental, may not work in all environments)
 
 IMPORTANT: Always use bridge_send to communicate — other workspaces cannot see your text output.`,
   }
