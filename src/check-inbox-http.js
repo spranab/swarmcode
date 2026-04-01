@@ -36,15 +36,24 @@ if (!WORKSPACE_ID) {
 
 let messages = [];
 
-// Check Redis
+// Check Redis with timeout
 if (REDIS_URL) {
   try {
     const { default: Redis } = await import("ioredis");
-    const redis = new Redis(REDIS_URL, { keyPrefix: "swarmcode:" });
+    const redis = new Redis(REDIS_URL, {
+      keyPrefix: "swarmcode:",
+      connectTimeout: 2000,
+      commandTimeout: 2000,
+      maxRetriesPerRequest: 1,
+      retryStrategy: () => null, // don't retry — fail fast
+    });
     const raw = await redis.lrange(`inbox:${WORKSPACE_ID}`, 0, -1);
     messages = raw.map((m) => JSON.parse(m)).reverse();
     await redis.quit();
-  } catch {}
+  } catch {
+    // Redis unavailable — silently skip
+    process.exit(0);
+  }
 }
 
 if (messages.length === 0) {

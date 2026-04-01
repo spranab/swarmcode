@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "AGENT_BRIDGE_REDIS_URL=redis://192.168.4.161:30379 AGENT_BRIDGE_WORKSPACE_ID=agent-bridge-dev npx -y mcp-agent-bridge check",
-            "timeout": 5000
+            "command": "SWARMCODE_REDIS_URL=redis://192.168.4.161:30379 SWARMCODE_WORKSPACE_ID=agent-bridge-dev swarmcode check",
+            "timeout": 3000
           }
         ]
       }
