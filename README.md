@@ -2,6 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/swarmcode-mcp)](https://www.npmjs.com/package/swarmcode-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/swarmcode-mcp)](https://www.npmjs.com/package/swarmcode-mcp)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 > **Using `mcp-agent-bridge`?** That is the old name of this project and it no
 > longer gets updates. Switch with
