@@ -1,6 +1,7 @@
 {
   "name": "swarmcode-mcp",
   "version": "1.0.3",
+  "mcpName": "io.github.spranab/swarmcode",
   "description": "Two Claude Code instances can't talk to each other — SwarmCode gives them a Redis-backed channel for messages, shared artifacts and workspace status, with real-time push into VS Code and a web dashboard.",
   "type": "module",
   "main": "src/channel.js",
