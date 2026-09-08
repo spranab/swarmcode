@@ -1,0 +1,35 @@
+name: Publish to MCP Registry
+
+# Publishes server.json to the official MCP registry
+# (registry.modelcontextprotocol.io) using GitHub OIDC — no stored secrets.
+# Manual trigger only: this repo's git tags (currently up to v2.0.4) do not
+# correspond to the published npm version (1.0.3) — publish.yml's `npm
+# publish` step just uses whatever is in package.json, so a tag-driven sync
+# here would risk publishing a version that isn't actually live on npm.
+# Bump the version in server.json to match a real npm publish, then run
+# this workflow by hand.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+
+      - name: Login (GitHub OIDC)
+        run: mcp-publisher login github-oidc
+
+      - name: Publish
+        run: mcp-publisher publish

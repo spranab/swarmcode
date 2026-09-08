@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.spranab/swarmcode",
+  "description": "Real-time cross-machine communication between Claude Code instances.",
+  "repository": {
+    "url": "https://github.com/spranab/swarmcode",
+    "source": "github"
+  },
+  "version": "1.0.3",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "swarmcode-mcp",
+      "version": "1.0.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SWARMCODE_REDIS_URL",
+          "description": "Redis connection URL for the shared channel",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "SWARMCODE_WORKSPACE_ID",
+          "description": "Workspace identifier this instance joins",
+          "isRequired": true,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
